@@ -54,6 +54,17 @@ function cryptoRandomId() {
   return Array.from(arr, b => b.toString(16).padStart(2, '0')).join('');
 }
 
+// Parse "{store}-YYYY-MM-DD" and return a LOCAL-midnight ISO for that date.
+// This avoids the UTC-midnight timezone bug where the APAI extension writes
+// "2026-07-17T00:00:00Z" which in Central Time parses back to July 16.
+function deriveDateFromSessionId(sessionId) {
+  if (!sessionId) return null;
+  const m = String(sessionId).match(/-(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  const [, y, mo, d] = m;
+  return new Date(Number(y), Number(mo) - 1, Number(d)).toISOString();
+}
+
 // ----------------- reducer -----------------
 function reducer(state, action) {
   switch (action.type) {
@@ -65,6 +76,11 @@ function reducer(state, action) {
       // local-only state (notably the photos[] arrays that may not yet have
       // synced their dataUrl→Storage upload).
       const remote = action.remote || {};
+      // Derive the authoritative date from the session id ({store}-YYYY-MM-DD).
+      // Never trust remote.date — the APAISuite extension writes UTC-midnight
+      // ISO strings, which parse to the PREVIOUS calendar day in Western
+      // timezones (Central UTC-6 turns "2026-07-17T00:00:00Z" into July 16).
+      const sidDate = deriveDateFromSessionId(action.sessionId);
       if (!state) {
         // First snapshot — populate fully, but ensure all config task ids exist.
         const tasks = { ...blankTasks(), ...(remote.tasks || {}) };
@@ -76,7 +92,7 @@ function reducer(state, action) {
           joinCode: remote.joinCode || generateJoinCode(6),
           storeNumber: remote.storeNumber || remote.storeNbr || getStoreNumber(),
           marketNumber: remote.marketNumber || '',
-          date: remote.date || todayISO(),
+          date: sidDate || remote.date || todayISO(),
           managers: remote.managers || { manager1: { name: '' }, manager2: { name: '' } },
           shiftNotes: remote.shiftNotes || '',
           status: remote.status || 'open',
@@ -102,7 +118,7 @@ function reducer(state, action) {
         storeNumber: remote.storeNumber || remote.storeNbr || state.storeNumber,
         marketNumber: remote.marketNumber ?? state.marketNumber,
         joinCode: remote.joinCode || state.joinCode,
-        date: remote.date || state.date,
+        date: sidDate || state.date,
         managers: remote.managers || state.managers,
         shiftNotes: remote.shiftNotes ?? state.shiftNotes,
         status: remote.status || state.status,

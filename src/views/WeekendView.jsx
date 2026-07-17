@@ -53,6 +53,23 @@ export default function WeekendView() {
 
   return (
     <div className="px-3 pt-4 pb-32">
+      {/* Toolbar (Reset / Email / Export PDF) — now above the day selector */}
+      <div className="flex justify-end gap-2 mb-3">
+        <button
+          onClick={() => { if (window.confirm('Reset all data for this day?')) resetDay(day); }}
+          className="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 text-slate-700"
+        >Reset</button>
+        <button
+          onClick={handleEmail}
+          className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white"
+        >Email</button>
+        <button
+          onClick={handleExportPdf}
+          disabled={exporting}
+          className="px-3 py-1.5 rounded-lg text-xs font-bold bg-[#0071CE] hover:bg-[#005fae] text-white disabled:opacity-60"
+        >{exporting ? 'Exporting…' : 'Export PDF'}</button>
+      </div>
+
       {/* Day tabs */}
       <div className="flex gap-2 mb-4">
         {DAYS.map(d => (
@@ -69,29 +86,7 @@ export default function WeekendView() {
         ))}
       </div>
 
-      {/* Toolbar */}
-      <div className="flex items-center justify-between mb-4">
-        <span className="text-xs text-slate-500 font-medium">
-          {dayLabel} · FTPR Checklist
-        </span>
-        <div className="flex gap-2">
-          <button
-            onClick={() => { if (window.confirm('Reset all data for this day?')) resetDay(day); }}
-            className="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 text-slate-700"
-          >Reset</button>
-          <button
-            onClick={handleEmail}
-            className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white"
-          >Email</button>
-          <button
-            onClick={handleExportPdf}
-            disabled={exporting}
-            className="px-3 py-1.5 rounded-lg text-xs font-bold bg-[#0071CE] hover:bg-[#005fae] text-white disabled:opacity-60"
-          >{exporting ? 'Exporting…' : 'Export PDF'}</button>
-        </div>
-      </div>
-
-      {/* Header card */}
+      {/* Header card (single source of truth for the title) */}
       <div className="bg-white rounded-2xl ring-1 ring-slate-200 overflow-hidden mb-3">
         <div className="bg-[#0071CE] px-4 py-3">
           <div className="text-white font-bold text-base">
