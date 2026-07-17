@@ -1,0 +1,26 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Photos for closing sessions. Path: sessions/<sessionId>/<taskId>/<photoId>.jpg
+    // sessionId pattern enforces store 1458 + valid date.
+    match /sessions/{sessionId}/{taskId}/{photoFile} {
+      allow read: if request.auth != null
+                  && sessionId.matches('^1458-[0-9]{4}-[0-9]{2}-[0-9]{2}$');
+
+      allow write: if request.auth != null
+                   && sessionId.matches('^1458-[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+                   && request.resource.size < 5 * 1024 * 1024     // 5 MB cap per photo
+                   && request.resource.contentType.matches('image/.*');
+
+      allow delete: if request.auth != null
+                    && sessionId.matches('^1458-[0-9]{4}-[0-9]{2}-[0-9]{2}$');
+    }
+
+    // Default-deny everything else.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
