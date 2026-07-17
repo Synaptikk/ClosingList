@@ -3,6 +3,7 @@ import jsPDF from 'jspdf';
 import { WEEKEND_SECTIONS, SLOTS } from '../config/weekendConfig';
 import { useWeekend } from '../store/weekendStore';
 import { storage } from '../lib/storage';
+import WeekendSyncIndicator from '../components/WeekendSyncIndicator';
 
 const DAYS = [
   { id: 'saturday', label: 'Saturday' },
@@ -53,12 +54,9 @@ export default function WeekendView() {
 
   return (
     <div className="px-3 pt-4 pb-32">
-      {/* Toolbar (Reset / Email / Export PDF) — now above the day selector */}
-      <div className="flex justify-end gap-2 mb-3">
-        <button
-          onClick={() => { if (window.confirm('Reset all data for this day?')) resetDay(day); }}
-          className="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 text-slate-700"
-        >Reset</button>
+      {/* Toolbar: sync indicator + actions, all left-aligned in one row */}
+      <div className="flex items-center gap-2 flex-wrap mb-3">
+        <WeekendSyncIndicator />
         <button
           onClick={handleEmail}
           className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white"
@@ -68,6 +66,10 @@ export default function WeekendView() {
           disabled={exporting}
           className="px-3 py-1.5 rounded-lg text-xs font-bold bg-[#0071CE] hover:bg-[#005fae] text-white disabled:opacity-60"
         >{exporting ? 'Exporting…' : 'Export PDF'}</button>
+        <button
+          onClick={() => { if (window.confirm('Reset all data for this day?')) resetDay(day); }}
+          className="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 text-slate-700"
+        >Reset</button>
       </div>
 
       {/* Day tabs */}
