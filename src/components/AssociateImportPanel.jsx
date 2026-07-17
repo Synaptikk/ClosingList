@@ -136,6 +136,17 @@ export default function AssociateImportPanel() {
 
   return (
     <div className="space-y-4">
+      {session.associates.length === 0 && (
+        <div className="bg-blue-50 ring-1 ring-blue-200 rounded-xl p-3 flex items-start gap-2.5">
+          <svg className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/>
+          </svg>
+          <div className="text-[13px] text-blue-900 leading-snug">
+            <span className="font-semibold">Waiting for APAISuite push.</span>{' '}
+            Open APAISuite → ClosingList and tap <strong>Collect</strong>. Your roster will show up here automatically. Or paste/upload manually below.
+          </div>
+        </div>
+      )}
       <section className="bg-white rounded-2xl ring-1 ring-slate-200 shadow-sm p-4">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <h3 className="text-sm font-semibold text-slate-800">Associates ({session.associates.length})</h3>

@@ -10,7 +10,7 @@ const DAYS = [
 ];
 
 export default function WeekendView() {
-  const [day, setDay] = useState('saturday');
+  const [day, setDay] = useState(() => defaultDay());
   const [exporting, setExporting] = useState(false);
   const [expandedSections, setExpandedSections] = useState(() => new Set());
   const [expandedItems, setExpandedItems]       = useState(() => new Set()); // "sectionId:itemId"
@@ -261,7 +261,7 @@ function SlotCell({ day, slotId, itemId, sectionId }) {
       <PhotoBtn day={day} slotId={slotId} itemId={itemId} sectionId={sectionId} />
 
       {itemPhotos.map(p => (
-        <div key={p.id} className="relative shrink-0" title={photoTitle(p)}>
+        <div key={p.id} className="relative shrink-0">
           <img src={p.dataUrl} alt="" className="w-8 h-8 object-cover rounded ring-1 ring-slate-200" />
           <button
             onClick={() => removePhoto(day, slotId, itemId, p.id)}
@@ -272,11 +272,6 @@ function SlotCell({ day, slotId, itemId, sectionId }) {
       ))}
     </div>
   );
-}
-
-function photoTitle(p) {
-  const t = p.addedAt ? new Date(p.addedAt).toLocaleString() : '';
-  return [p.addedBy, t].filter(Boolean).join(' · ');
 }
 
 // ── Inputs ─────────────────────────────────────────────────────────────────
@@ -316,7 +311,7 @@ function NoteInput({ day, slotId, itemId, slotLabel }) {
 }
 
 function PhotoBtn({ day, slotId, itemId, sectionId }) {
-  const { addPhoto, slotData, userName } = useWeekend();
+  const { addPhoto, userName } = useWeekend();
   const fileRef = useRef(null);
   const [busy, setBusy] = useState(false);
 
@@ -325,9 +320,9 @@ function PhotoBtn({ day, slotId, itemId, sectionId }) {
     if (!files.length) return;
     setBusy(true);
     try {
-      const s = slotData(day, slotId);
-      // Prefer the section-level assignee, fall back to the slot name (legacy), then logged-in user.
-      const uploader = (sectionId && s.assignees[sectionId]) || s.name || userName || 'Unknown';
+      // Tag the photo with the actual person who took it (the logged-in user).
+      // Section assignees are separate — they represent WHO OWNS the area, not WHO snapped the photo.
+      const uploader = userName || 'Unknown';
       for (const f of files) {
         if (!f.type.startsWith('image/')) continue;
         const dataUrl = await compressImage(f);
@@ -342,7 +337,7 @@ function PhotoBtn({ day, slotId, itemId, sectionId }) {
       setBusy(false);
       if (fileRef.current) fileRef.current.value = '';
     }
-  }, [day, slotId, itemId, sectionId, addPhoto, slotData, userName]);
+  }, [day, slotId, itemId, addPhoto, userName]);
 
   return (
     <>
@@ -394,6 +389,15 @@ function cryptoId() {
   const a = new Uint8Array(6);
   (globalThis.crypto || window.crypto).getRandomValues(a);
   return Array.from(a, b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Default the day tab to today when today IS Saturday or Sunday.
+// Any other day of the week -> Saturday (crews are usually prepping ahead).
+// Prevents "app opens on Sunday but shows Saturday's data" surprise.
+function defaultDay() {
+  const dow = new Date().getDay(); // 0 Sun, 6 Sat
+  if (dow === 0) return 'sunday';
+  return 'saturday';
 }
 
 // Weekend photos are for accountability (proof of work), not archival photography.
@@ -597,77 +601,160 @@ async function exportOverviewPdf({ day, storeNumber, slotData }) {
   pdf.save(`weekend-firstpick-${dayLabel.toLowerCase()}-${now.toISOString().slice(0, 10)}.pdf`);
 }
 
-// Renders one item as a mini-report: title, per-slot activity lines,
-// optional notes, and inline photos with captions.
+// Renders one item as a mini-report with a two-column layout:
+// item title spans full width, then 12-3pm on the left / 3-6pm on the right.
+// Each column: status glyph + activity line + note + photos, scoped to that slot.
 function drawItemOverview({ pdf, item, section, day, slotData, y, M, usableW, PB }) {
-  // Item title.
+  // Item title (full width).
   y = pageBreak(pdf, y, 24, M, PB);
   pdf.setTextColor(20, 20, 20);
   pdf.setFont('helvetica', 'bold');
   pdf.setFontSize(11);
   pdf.text(item.label, M + 6, y + 12);
-  y += 20;
+  y += 18;
 
-  // Per-slot activity block.
-  for (const slot of SLOTS) {
-    const s = slotData(day, slot.id);
-    const checked = !!s.checks[item.id];
-    const nPhotos = (s.photos[item.id] || []).length;
-    const note    = (s.notes[item.id]  || '').trim();
-    if (!checked && !nPhotos && !note) continue;
+  // Two-column layout.
+  const GUTTER = 12;
+  const colW   = (usableW - GUTTER) / 2;
+  const colX   = [M, M + colW + GUTTER];
+  const startY = y;
 
-    y = pageBreak(pdf, y, note ? 30 : 16, M, PB);
-    // Status glyph.
-    const rgb = hexToRgb(section.color);
-    if (checked) {
-      pdf.setFillColor(rgb.r, rgb.g, rgb.b);
-      pdf.circle(M + 12, y + 5, 3, 'F');
-    } else {
-      pdf.setDrawColor(180, 180, 180);
-      pdf.circle(M + 12, y + 5, 3, 'S');
-    }
-    // Activity line.
-    pdf.setFont('helvetica', 'normal');
-    pdf.setFontSize(10);
-    pdf.setTextColor(60, 60, 60);
-    const assignee = s.assignees[section.id] || '';
-    const parts = [slot.label];
-    if (assignee) parts.push(`· ${assignee}`);
-    if (nPhotos) parts.push(`· ${nPhotos} photo${nPhotos > 1 ? 's' : ''}`);
-    pdf.text(parts.join(' '), M + 22, y + 8);
-    y += 14;
-
-    // Note.
-    if (note) {
-      const wrapped = pdf.splitTextToSize(`"${note}"`, usableW - 30);
-      pdf.setFont('helvetica', 'italic');
-      pdf.setTextColor(90, 90, 90);
-      pdf.setFontSize(9);
-      const noteH = wrapped.length * 11;
-      y = pageBreak(pdf, y, noteH + 4, M, PB);
-      pdf.text(wrapped, M + 22, y + 8);
-      y += noteH + 2;
-    }
+  // First-pass estimate to see if the tallest column will overflow the page.
+  const estH = Math.max(
+    estimateSlotBlockH(pdf, item, section, slotData(day, SLOTS[0].id), colW),
+    estimateSlotBlockH(pdf, item, section, slotData(day, SLOTS[1].id), colW),
+  );
+  if (startY + estH > PB) {
+    pdf.addPage();
+    return drawItemOverview({ pdf, item, section, day, slotData, y: M + 6, M, usableW, PB });
   }
 
-  // Photos row.
-  const allPhotos = [];
-  for (const slot of SLOTS) {
-    const s = slotData(day, slot.id);
-    for (const p of (s.photos[item.id] || [])) {
-      allPhotos.push({ ...p, _slotLabel: slot.label });
-    }
-  }
-  if (allPhotos.length) {
-    y = drawPhotoRow({ pdf, photos: allPhotos, y, M, usableW, PB });
-  }
-  y += 8;
+  const columnYs = SLOTS.map((slot, i) => {
+    return drawSlotBlock({
+      pdf,
+      slot,
+      section,
+      slotState: slotData(day, slot.id),
+      item,
+      x: colX[i],
+      y: startY,
+      w: colW,
+    });
+  });
 
-  // Divider.
+  y = Math.max(...columnYs) + 6;
+
+  // Divider between items.
   pdf.setDrawColor(240, 240, 240);
   pdf.line(M, y, M + usableW, y);
   y += 6;
   return y;
+}
+
+// Renders one slot's block inside a column of width `w`. Returns final y.
+function drawSlotBlock({ pdf, slot, section, slotState, item, x, y, w }) {
+  const checked = !!slotState.checks[item.id];
+  const photos  = slotState.photos[item.id] || [];
+  const note    = (slotState.notes[item.id] || '').trim();
+  const anyActivity = checked || photos.length || note;
+
+  // Column header — slot label, always shown so both columns line up visually.
+  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(8);
+  pdf.setTextColor(120, 120, 120);
+  pdf.text(slot.label.toUpperCase(), x + 4, y + 8);
+
+  if (!anyActivity) {
+    pdf.setFont('helvetica', 'italic');
+    pdf.setFontSize(9);
+    pdf.setTextColor(180, 180, 180);
+    pdf.text('— no activity —', x + 4, y + 22);
+    return y + 30;
+  }
+
+  // Status glyph + assignee (if any) on the same row.
+  const rgb = hexToRgb(section.color);
+  const glyphY = y + 20;
+  if (checked) {
+    pdf.setFillColor(rgb.r, rgb.g, rgb.b);
+    pdf.circle(x + 8, glyphY, 3, 'F');
+  } else {
+    pdf.setDrawColor(180, 180, 180);
+    pdf.circle(x + 8, glyphY, 3, 'S');
+  }
+  pdf.setFont('helvetica', 'normal');
+  pdf.setFontSize(10);
+  pdf.setTextColor(60, 60, 60);
+  const assignee = slotState.assignees[section.id] || '';
+  const parts = [checked ? 'Done' : 'Open'];
+  if (assignee)      parts.push(`· ${assignee}`);
+  if (photos.length) parts.push(`· ${photos.length} photo${photos.length > 1 ? 's' : ''}`);
+  pdf.text(parts.join(' '), x + 16, y + 23);
+  let curY = y + 32;
+
+  // Note.
+  if (note) {
+    const wrapped = pdf.splitTextToSize(`"${note}"`, w - 12);
+    pdf.setFont('helvetica', 'italic');
+    pdf.setFontSize(9);
+    pdf.setTextColor(90, 90, 90);
+    pdf.text(wrapped, x + 6, curY);
+    curY += wrapped.length * 11 + 2;
+  }
+
+    // Photos under this slot's activity line.
+    if (photos.length) {
+      curY = drawPhotosInBox({ pdf, photos, x: x + 4, y: curY, w: w - 8 });
+    }
+
+    return curY;
+  }
+
+// Estimates the vertical space one slot block needs, so we can decide whether
+// to force a page break before starting the two-column layout.
+function estimateSlotBlockH(pdf, item, section, slotState, w) {
+  const checked = !!slotState.checks[item.id];
+  const photos  = slotState.photos[item.id] || [];
+  const note    = (slotState.notes[item.id] || '').trim();
+  if (!checked && !photos.length && !note) return 30;
+  let h = 32; // slot label + activity line
+  if (note) {
+    const wrapped = pdf.splitTextToSize(`"${note}"`, w - 12);
+    h += wrapped.length * 11 + 2;
+  }
+  if (photos.length) {
+    const PW = 76;
+    const perRow = Math.max(1, Math.floor((w - 8) / (PW + 6)));
+    const rows = Math.ceil(photos.length / perRow);
+    h += rows * (PW + 6);
+  }
+  return h;
+}
+
+// Tile photos in a bounded box (single column). Wraps to new lines as needed.
+// No captions — the photo IS the proof, no metadata clutter needed.
+function drawPhotosInBox({ pdf, photos, x, y, w }) {
+  const PW = 76, PH = 76, GAP = 6;
+  const perRow = Math.max(1, Math.floor(w / (PW + GAP)));
+  let col = 0;
+  let rowY = y;
+
+  for (const p of photos) {
+    const px = x + col * (PW + GAP);
+    try {
+      pdf.addImage(p.dataUrl, 'JPEG', px, rowY, PW, PH, undefined, 'FAST');
+    } catch {
+      pdf.setDrawColor(200, 200, 200);
+      pdf.rect(px, rowY, PW, PH, 'S');
+    }
+    col++;
+    if (col >= perRow) {
+      col = 0;
+      rowY += PH + GAP;
+    }
+  }
+  if (col > 0) rowY += PH + GAP;
+  return rowY + 2;
 }
 
 function drawPhotoRow({ pdf, photos, y, M, usableW, PB }) {
