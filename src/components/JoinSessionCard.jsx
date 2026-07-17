@@ -31,14 +31,20 @@ export default function JoinSessionCard() {
 
 function StoreSetup({ onDone }) {
   const settings = storage.getSettings();
-  const [storeNumber, setStoreNumber] = useState(settings.storeNumber || '');
-  const [userName, setUserName]       = useState(settings.userName || '');
-  const [error, setError]             = useState('');
+  const [storeNumber, setStoreNumber]       = useState(settings.storeNumber    || '');
+  const [userName, setUserName]             = useState(settings.userName       || '');
+  const [emailRecipient, setEmailRecipient] = useState(settings.emailRecipient || '');
+  const [error, setError]                   = useState('');
 
   function onSave() {
     if (!storeNumber.trim()) { setError('Enter your store number.'); return; }
     if (!userName.trim())    { setError('Enter your name.'); return; }
-    storage.saveSettings({ ...settings, storeNumber: storeNumber.trim(), userName: userName.trim() });
+    storage.saveSettings({
+      ...settings,
+      storeNumber:    storeNumber.trim(),
+      userName:       userName.trim(),
+      emailRecipient: emailRecipient.trim(),
+    });
     onDone();
   }
 
@@ -66,6 +72,20 @@ function StoreSetup({ onDone }) {
           placeholder="e.g. Sarah"
           className="w-full rounded-lg ring-1 ring-slate-200 px-3 py-2.5 text-base focus:outline-none focus:ring-[#0071dc]"
         />
+      </Field>
+
+      <Field label="Send reports to (optional)">
+        <input
+          type="email"
+          inputMode="email"
+          value={emailRecipient}
+          onChange={e => setEmailRecipient(e.target.value)}
+          placeholder="dm@example.com"
+          className="w-full rounded-lg ring-1 ring-slate-200 px-3 py-2.5 text-base focus:outline-none focus:ring-[#0071dc]"
+        />
+        <span className="block text-[11px] text-slate-500 mt-1">
+          Pre-fills the "To" address when you tap Email on any checklist.
+        </span>
       </Field>
 
       {error && (

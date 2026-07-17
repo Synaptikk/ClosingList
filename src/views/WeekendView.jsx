@@ -3,6 +3,7 @@ import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas-pro';
 import { WEEKEND_SECTIONS, SLOTS } from '../config/weekendConfig';
 import { useWeekend } from '../store/weekendStore';
+import { storage } from '../lib/storage';
 
 const DAYS = [
   { id: 'saturday', label: 'Saturday' },
@@ -13,7 +14,41 @@ export default function WeekendView() {
   const [day, setDay] = useState('saturday');
   const [exporting, setExporting] = useState(false);
   const printRef = useRef(null);
-  const { resetDay, storeNumber } = useWeekend();
+  const { resetDay, storeNumber, slotData } = useWeekend();
+
+  function handleEmail() {
+    const label   = DAYS.find(d => d.id === day)?.label ?? day;
+    const dateStr = new Date().toLocaleDateString();
+    const subject = `${storeNumber ? `Store ${storeNumber} · ` : ''}${label} First Pick Checklist · ${dateStr}`;
+
+    const lines = [];
+    lines.push(`${storeNumber ? `Store ${storeNumber} — ` : ''}${label} First Pick Checklist`);
+    lines.push(`Date: ${dateStr}`);
+    lines.push('');
+
+    for (const slot of SLOTS) {
+      const { name, checks, photos } = slotData(day, slot.id);
+      lines.push(`── ${slot.label} · ${name || '(no name)'} ──`);
+      for (const section of WEEKEND_SECTIONS) {
+        const rows = section.items.map(item => {
+          const done = !!checks[item.id];
+          const nPhotos = (photos[item.id] || []).length;
+          const glyph = done ? '[x]' : '[ ]';
+          const extra = nPhotos ? ` (${nPhotos} photo${nPhotos > 1 ? 's' : ''})` : '';
+          return `  ${glyph} ${item.label}${extra}`;
+        });
+        lines.push(`  ${section.title}:`);
+        lines.push(...rows);
+      }
+      lines.push('');
+    }
+    lines.push(`Sent from Closing Manager Checklist · ${new Date().toLocaleString()}`);
+
+    const settings = storage.getSettings();
+    const to       = settings.emailRecipient || '';
+    const href     = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(lines.join('\n'))}`;
+    window.location.href = href;
+  }
 
   async function handleExportPdf() {
     if (!printRef.current) return;
@@ -83,6 +118,10 @@ export default function WeekendView() {
             onClick={() => { if (window.confirm('Reset all data for this day?')) resetDay(day); }}
             className="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 text-slate-700"
           >Reset</button>
+          <button
+            onClick={handleEmail}
+            className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white"
+          >Email</button>
           <button
             onClick={handleExportPdf}
             disabled={exporting}
