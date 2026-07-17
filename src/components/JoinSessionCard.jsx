@@ -30,20 +30,21 @@ export default function JoinSessionCard() {
 // ── Step 1: store number + your name ──────────────────────────────────────
 
 function StoreSetup({ onDone }) {
-  const settings = storage.getSettings();
-  const [storeNumber, setStoreNumber]       = useState(settings.storeNumber    || '');
-  const [userName, setUserName]             = useState(settings.userName       || '');
-  const [emailRecipient, setEmailRecipient] = useState(settings.emailRecipient || '');
+  // Always start empty — never pre-fill from saved settings. The user is here
+  // to enter fresh info (either first-time setup or a deliberate "Change store").
+  const [storeNumber, setStoreNumber]       = useState('');
+  const [userName, setUserName]             = useState('');
+  const [emailRecipient, setEmailRecipient] = useState('');
   const [error, setError]                   = useState('');
 
   function onSave() {
     if (!storeNumber.trim()) { setError('Enter your store number.'); return; }
     if (!userName.trim())    { setError('Enter your name.'); return; }
     storage.saveSettings({
-      ...settings,
       storeNumber:    storeNumber.trim(),
       userName:       userName.trim(),
       emailRecipient: emailRecipient.trim(),
+      marketNumber:   '',
     });
     onDone();
   }
