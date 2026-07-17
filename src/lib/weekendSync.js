@@ -21,7 +21,7 @@
 //      On snapshot receipt we set dataUrl = downloadUrl so the existing
 //      <img src={p.dataUrl}> render path keeps working unchanged.
 
-import { doc, getDoc, onSnapshot, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot, setDoc, updateDoc, serverTimestamp, deleteField } from 'firebase/firestore';
 
 const DEBOUNCE_MS = 350;
 
@@ -192,19 +192,26 @@ function serializeState(state) {
 function walkDiff(a, b, prefix, out) {
   if (b === a) return;
   if (!isPlainObject(a) || !isPlainObject(b)) {
-    if (!scalarEqual(a, b)) out[prefix] = b;
+    if (!scalarEqual(a, b)) out[prefix] = b === undefined ? deleteField() : b;
     return;
   }
   const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
   for (const k of keys) {
     const path = prefix ? `${prefix}.${sanitizeKey(k)}` : sanitizeKey(k);
     if (a[k] === b[k]) continue;
+    // Key present in old, gone in new — emit a Firestore field delete so the
+    // server actually clears it. Without this, resetting a check/note/photo/
+    // assignee leaves the old value in Firestore, which comes back on refresh.
+    if (k in a && !(k in b)) {
+      out[path] = deleteField();
+      continue;
+    }
     if (isPlainObject(a[k]) && isPlainObject(b[k])) {
       walkDiff(a[k], b[k], path, out);
     } else if (Array.isArray(a[k]) && Array.isArray(b[k])) {
       if (!arraysEqual(a[k], b[k])) out[path] = b[k];
     } else {
-      if (!scalarEqual(a[k], b[k])) out[path] = b[k];
+      if (!scalarEqual(a[k], b[k])) out[path] = b[k] === undefined ? deleteField() : b[k];
     }
   }
 }
