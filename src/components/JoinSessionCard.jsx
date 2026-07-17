@@ -107,14 +107,12 @@ function StoreSetup({ onDone }) {
 function SessionPanel({ onChangeStore }) {
   const { createSession, joinSession } = useSession();
   const settings = storage.getSettings();
-  const [mode, setMode]                 = useState('start');
-  const [joinCode, setJoinCode]         = useState('');
-  const [marketNumber, setMarketNumber] = useState(settings.marketNumber || '');
-  const [error, setError]               = useState('');
+  const [mode, setMode]         = useState('start');
+  const [joinCode, setJoinCode] = useState('');
+  const [error, setError]       = useState('');
 
   function onCreate() {
-    storage.saveSettings({ ...settings, marketNumber });
-    createSession({ storeNumber: settings.storeNumber, marketNumber });
+    createSession({ storeNumber: settings.storeNumber });
   }
 
   function onJoin() {
@@ -160,14 +158,12 @@ function SessionPanel({ onChangeStore }) {
 
         {mode === 'start' ? (
           <div className="p-4 space-y-4">
-            <Field label="Market # (optional)">
-              <input
-                inputMode="numeric"
-                value={marketNumber}
-                onChange={e => setMarketNumber(e.target.value)}
-                className="w-full rounded-lg ring-1 ring-slate-200 px-3 py-2.5 text-base"
-              />
-            </Field>
+            <div className="bg-slate-50 rounded-lg p-3 text-sm">
+              <div className="text-slate-500 text-[11px] uppercase tracking-wide font-semibold mb-1">Store</div>
+              <div className="font-bold text-slate-900 text-base">Store {settings.storeNumber}</div>
+              <div className="text-slate-500 text-[11px] uppercase tracking-wide font-semibold mt-2 mb-1">Your name</div>
+              <div className="font-bold text-slate-900 text-base">{settings.userName || '—'}</div>
+            </div>
             <button
               onClick={onCreate}
               className="w-full bg-[#0071dc] hover:bg-[#005bb5] active:bg-[#004a96] text-white font-semibold py-3.5 rounded-xl shadow-sm"

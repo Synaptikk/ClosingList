@@ -12,13 +12,21 @@ const DAYS = [
 export default function WeekendView() {
   const [day, setDay] = useState('saturday');
   const [exporting, setExporting] = useState(false);
-  const [expanded, setExpanded] = useState(() => new Set()); // section ids that are expanded
-  const { resetDay, storeNumber, slotData, state } = useWeekend();
+  const [expandedSections, setExpandedSections] = useState(() => new Set());
+  const [expandedItems, setExpandedItems]       = useState(() => new Set()); // "sectionId:itemId"
+  const { resetDay, storeNumber, slotData } = useWeekend();
 
   function toggleSection(id) {
-    setExpanded(prev => {
+    setExpandedSections(prev => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+  function toggleItem(key) {
+    setExpandedItems(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
       return next;
     });
   }
@@ -27,40 +35,15 @@ export default function WeekendView() {
     const label   = DAYS.find(d => d.id === day)?.label ?? day;
     const dateStr = new Date().toLocaleDateString();
     const subject = `${storeNumber ? `Store ${storeNumber} · ` : ''}${label} First Pick Checklist · ${dateStr}`;
-
-    const lines = [];
-    lines.push(`${storeNumber ? `Store ${storeNumber} — ` : ''}${label} First Pick Checklist`);
-    lines.push(`Date: ${dateStr}`);
-    lines.push('');
-
-    for (const slot of SLOTS) {
-      const { name, checks, photos } = slotData(day, slot.id);
-      lines.push(`── ${slot.label} · ${name || '(no name)'} ──`);
-      for (const section of WEEKEND_SECTIONS) {
-        const rows = section.items.map(item => {
-          const done = !!checks[item.id];
-          const nPhotos = (photos[item.id] || []).length;
-          const glyph = done ? '[x]' : '[ ]';
-          const extra = nPhotos ? ` (${nPhotos} photo${nPhotos > 1 ? 's' : ''})` : '';
-          return `  ${glyph} ${item.label}${extra}`;
-        });
-        lines.push(`  ${section.title}:`);
-        lines.push(...rows);
-      }
-      lines.push('');
-    }
-    lines.push(`Sent from Closing Manager Checklist · ${new Date().toLocaleString()}`);
-
-    const settings = storage.getSettings();
-    const to       = settings.emailRecipient || '';
-    const href     = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(lines.join('\n'))}`;
-    window.location.href = href;
+    const body    = buildOverviewText({ day, storeNumber, slotData });
+    const to      = storage.getSettings().emailRecipient || '';
+    window.location.href = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   }
 
   async function handleExportPdf() {
     setExporting(true);
     try {
-      await exportProfessionalPdf({ day, storeNumber, slotData });
+      await exportOverviewPdf({ day, storeNumber, slotData });
     } finally {
       setExporting(false);
     }
@@ -126,15 +109,17 @@ export default function WeekendView() {
         </div>
       </div>
 
-      {/* Collapsible sections */}
+      {/* Sections */}
       <div className="space-y-2">
         {WEEKEND_SECTIONS.map(section => (
           <SectionPanel
             key={section.id}
             section={section}
             day={day}
-            expanded={expanded.has(section.id)}
+            expanded={expandedSections.has(section.id)}
             onToggle={() => toggleSection(section.id)}
+            expandedItems={expandedItems}
+            onToggleItem={toggleItem}
           />
         ))}
       </div>
@@ -144,10 +129,9 @@ export default function WeekendView() {
 
 // ── Section (collapsible) ──────────────────────────────────────────────────
 
-function SectionPanel({ section, day, expanded, onToggle }) {
+function SectionPanel({ section, day, expanded, onToggle, expandedItems, onToggleItem }) {
   const { slotData } = useWeekend();
 
-  // Progress across both slots.
   let done = 0;
   const total = section.items.length * SLOTS.length;
   for (const slot of SLOTS) {
@@ -158,16 +142,9 @@ function SectionPanel({ section, day, expanded, onToggle }) {
 
   return (
     <section className="bg-white rounded-2xl ring-1 ring-slate-200 shadow-sm overflow-hidden">
-      <button
-        onClick={onToggle}
-        className="w-full text-left"
-        aria-expanded={expanded}
-      >
+      <button onClick={onToggle} className="w-full text-left" aria-expanded={expanded}>
         <div className="flex items-stretch">
-          <div
-            className="w-1.5 shrink-0"
-            style={{ backgroundColor: section.color }}
-          />
+          <div className="w-1.5 shrink-0" style={{ backgroundColor: section.color }} />
           <div className="flex-1 px-3 py-3">
             <div className="flex items-center gap-2">
               <h3 className="font-bold text-slate-900 text-[15px] flex-1 truncate">{section.title}</h3>
@@ -175,10 +152,7 @@ function SectionPanel({ section, day, expanded, onToggle }) {
               <Chevron open={expanded} />
             </div>
             <div className="mt-1.5 h-1 bg-slate-100 rounded-full overflow-hidden">
-              <div
-                className="h-full transition-all"
-                style={{ width: `${pct}%`, backgroundColor: section.color }}
-              />
+              <div className="h-full transition-all" style={{ width: `${pct}%`, backgroundColor: section.color }} />
             </div>
           </div>
         </div>
@@ -189,9 +163,9 @@ function SectionPanel({ section, day, expanded, onToggle }) {
           <table className="w-full text-sm border-collapse">
             <thead>
               <tr className="bg-slate-50">
-                <th className="text-left px-3 py-2 text-[10px] font-semibold text-slate-500 uppercase tracking-wide w-[38%]">Item</th>
+                <th className="text-left px-3 py-2 text-[10px] font-semibold text-slate-500 uppercase tracking-wide w-[32%]">Item</th>
                 {SLOTS.map(slot => (
-                  <th key={slot.id} className="px-2 py-2 text-center text-[10px] font-bold text-slate-700 w-[31%]">
+                  <th key={slot.id} className="px-2 py-2 text-center text-[10px] font-bold text-slate-700 w-[34%]">
                     {slot.label}
                   </th>
                 ))}
@@ -199,7 +173,15 @@ function SectionPanel({ section, day, expanded, onToggle }) {
             </thead>
             <tbody>
               {section.items.map((item, idx) => (
-                <ItemRow key={item.id} item={item} day={day} zebra={idx % 2 === 1} />
+                <ItemRow
+                  key={item.id}
+                  item={item}
+                  section={section}
+                  day={day}
+                  zebra={idx % 2 === 1}
+                  expanded={expandedItems.has(`${section.id}:${item.id}`)}
+                  onToggle={() => onToggleItem(`${section.id}:${item.id}`)}
+                />
               ))}
             </tbody>
           </table>
@@ -209,20 +191,48 @@ function SectionPanel({ section, day, expanded, onToggle }) {
   );
 }
 
-// ── Rows ───────────────────────────────────────────────────────────────────
+// ── Item row (clickable to expand notes) ───────────────────────────────────
 
-function ItemRow({ item, day, zebra }) {
+function ItemRow({ item, section, day, zebra, expanded, onToggle }) {
+  const { slotData } = useWeekend();
+  const hasAnyNote = SLOTS.some(s => (slotData(day, s.id).notes[item.id] || '').trim().length > 0);
+
   return (
-    <tr className={zebra ? 'bg-slate-50/60' : 'bg-white'}>
-      <td className="px-3 py-2.5 text-[13px] text-slate-800 border-b border-slate-100 align-top">{item.label}</td>
-      {SLOTS.map(slot => (
-        <td key={slot.id} className="px-2 py-2.5 border-b border-slate-100 align-top">
-          <SlotCell day={day} slotId={slot.id} itemId={item.id} />
+    <>
+      <tr className={zebra ? 'bg-slate-50/60' : 'bg-white'}>
+        <td className="border-b border-slate-100 align-top">
+          <button
+            onClick={onToggle}
+            className="w-full text-left px-3 py-2.5 hover:bg-slate-50 flex items-center gap-1.5"
+            aria-expanded={expanded}
+          >
+            <span className="text-[13px] text-slate-800 flex-1 truncate">{item.label}</span>
+            {hasAnyNote && <NoteIcon className="w-3.5 h-3.5 text-slate-400 shrink-0" />}
+            <Chevron open={expanded} small />
+          </button>
         </td>
-      ))}
-    </tr>
+        {SLOTS.map(slot => (
+          <td key={slot.id} className="px-2 py-2.5 border-b border-slate-100 align-middle">
+            <SlotCell day={day} slotId={slot.id} itemId={item.id} />
+          </td>
+        ))}
+      </tr>
+      {expanded && (
+        <tr>
+          <td colSpan={3} className="bg-slate-50 border-b border-slate-200 px-3 py-2">
+            <div className="grid grid-cols-2 gap-2">
+              {SLOTS.map(slot => (
+                <NoteInput key={slot.id} day={day} slotId={slot.id} itemId={item.id} slotLabel={slot.label} />
+              ))}
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
   );
 }
+
+// ── Slot cell (horizontal: check + camera + thumbs in one row) ─────────────
 
 function SlotCell({ day, slotId, itemId }) {
   const { slotData, toggle, removePhoto } = useWeekend();
@@ -231,11 +241,11 @@ function SlotCell({ day, slotId, itemId }) {
   const itemPhotos = photos[itemId] || [];
 
   return (
-    <div className="flex flex-col items-center gap-1.5">
+    <div className="flex items-center justify-start gap-1.5 flex-wrap">
       <button
         onClick={() => toggle(day, slotId, itemId)}
         className={
-          'w-8 h-8 rounded-lg border-2 flex items-center justify-center transition-colors ' +
+          'w-7 h-7 rounded-md border-2 flex items-center justify-center transition-colors shrink-0 ' +
           (checked
             ? 'bg-[#0071CE] border-[#0071CE]'
             : 'bg-white border-slate-300 hover:border-[#0071CE]')
@@ -245,22 +255,18 @@ function SlotCell({ day, slotId, itemId }) {
         {checked && <CheckIcon />}
       </button>
 
-      {itemPhotos.length > 0 && (
-        <div className="flex flex-wrap gap-1 justify-center">
-          {itemPhotos.map(p => (
-            <div key={p.id} className="relative" title={photoTitle(p)}>
-              <img src={p.dataUrl} alt="photo" className="w-10 h-10 object-cover rounded ring-1 ring-slate-200" />
-              <button
-                onClick={() => removePhoto(day, slotId, itemId, p.id)}
-                className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-500 text-white text-[10px] flex items-center justify-center"
-                aria-label="Remove"
-              >×</button>
-            </div>
-          ))}
-        </div>
-      )}
-
       <PhotoBtn day={day} slotId={slotId} itemId={itemId} />
+
+      {itemPhotos.map(p => (
+        <div key={p.id} className="relative shrink-0" title={photoTitle(p)}>
+          <img src={p.dataUrl} alt="" className="w-8 h-8 object-cover rounded ring-1 ring-slate-200" />
+          <button
+            onClick={() => removePhoto(day, slotId, itemId, p.id)}
+            className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-rose-500 text-white text-[8px] flex items-center justify-center"
+            aria-label="Remove"
+          >×</button>
+        </div>
+      ))}
     </div>
   );
 }
@@ -283,6 +289,25 @@ function NameInput({ day, slotId }) {
       placeholder="Name…"
       className="mt-1 block w-full text-sm border border-slate-200 rounded px-2 py-1.5 bg-white focus:outline-none focus:border-[#0071CE]"
     />
+  );
+}
+
+function NoteInput({ day, slotId, itemId, slotLabel }) {
+  const { slotData, setNote } = useWeekend();
+  const value = slotData(day, slotId).notes[itemId] || '';
+  return (
+    <label className="block">
+      <span className="block text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-1">
+        {slotLabel} notes
+      </span>
+      <textarea
+        value={value}
+        onChange={e => setNote(day, slotId, itemId, e.target.value)}
+        placeholder="Add notes for this slot…"
+        rows={2}
+        className="w-full text-[12px] border border-slate-200 rounded px-2 py-1.5 bg-white focus:outline-none focus:border-[#0071CE] resize-y"
+      />
+    </label>
   );
 }
 
@@ -314,7 +339,7 @@ function PhotoBtn({ day, slotId, itemId }) {
   }, [day, slotId, itemId, addPhoto, slotData, userName]);
 
   return (
-    <div>
+    <>
       <input
         ref={fileRef}
         type="file"
@@ -327,12 +352,12 @@ function PhotoBtn({ day, slotId, itemId }) {
       <button
         onClick={() => fileRef.current?.click()}
         disabled={busy}
-        className="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 disabled:opacity-40"
+        className="w-7 h-7 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-600 disabled:opacity-40 flex items-center justify-center shrink-0"
         title="Add photo"
       >
-        {busy ? <SpinIcon className="w-4 h-4 animate-spin" /> : <CamIcon className="w-4 h-4" />}
+        {busy ? <SpinIcon className="w-3.5 h-3.5 animate-spin" /> : <CamIcon className="w-3.5 h-3.5" />}
       </button>
-    </div>
+    </>
   );
 }
 
@@ -340,16 +365,18 @@ function PhotoBtn({ day, slotId, itemId }) {
 
 function CheckIcon() {
   return (
-    <svg className="w-5 h-5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+    <svg className="w-4 h-4 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
       <polyline points="20 6 9 17 4 12" />
     </svg>
   );
 }
-function CamIcon(p)   { return <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 8h3l2-3h8l2 3h3v11H3z"/><circle cx="12" cy="13" r="3.5"/></svg>; }
-function SpinIcon(p)  { return <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>; }
-function Chevron({ open }) {
+function CamIcon(p)  { return <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 8h3l2-3h8l2 3h3v11H3z"/><circle cx="12" cy="13" r="3.5"/></svg>; }
+function SpinIcon(p) { return <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>; }
+function NoteIcon(p) { return <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="14 3 14 9 20 9"/></svg>; }
+function Chevron({ open, small }) {
+  const cls = small ? 'w-4 h-4' : 'w-5 h-5';
   return (
-    <svg className={`w-5 h-5 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg className={`${cls} text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <polyline points="6 9 12 15 18 9"/>
     </svg>
   );
@@ -385,64 +412,168 @@ function compressImage(file) {
   });
 }
 
-// ── PDF Export ─────────────────────────────────────────────────────────────
-// Renders a clean multi-page PDF using jsPDF's native text/rect primitives
-// rather than an html2canvas snapshot. Result: crisp text, small file size,
-// and embedded photos with captions.
+// ── Email body (plain-text overview) ───────────────────────────────────────
 
-async function exportProfessionalPdf({ day, storeNumber, slotData }) {
+function buildOverviewText({ day, storeNumber, slotData }) {
+  const dayLabel = DAYS.find(d => d.id === day)?.label ?? day;
+  const dateStr  = new Date().toLocaleDateString();
+  const lines = [];
+  lines.push(`${storeNumber ? `Store ${storeNumber} — ` : ''}${dayLabel} First Pick Checklist`);
+  lines.push(dateStr);
+  lines.push('');
+  for (const slot of SLOTS) {
+    const name = slotData(day, slot.id).name || '(no name)';
+    lines.push(`${slot.label}: ${name}`);
+  }
+  lines.push('');
+
+  const notAddressed = [];
+  for (const section of WEEKEND_SECTIONS) {
+    const rows = [];
+    for (const item of section.items) {
+      const activity = SLOTS
+        .map(slot => {
+          const s = slotData(day, slot.id);
+          const checked = !!s.checks[item.id];
+          const nPhotos = (s.photos[item.id] || []).length;
+          const note    = (s.notes[item.id]  || '').trim();
+          if (!checked && !nPhotos && !note) return null;
+          const parts = [];
+          if (checked) parts.push('✓');
+          parts.push(slot.label);
+          if (s.name) parts.push(`(${s.name})`);
+          if (nPhotos) parts.push(`${nPhotos} photo${nPhotos > 1 ? 's' : ''}`);
+          if (note)    parts.push(`— "${note}"`);
+          return `    ${parts.join(' ')}`;
+        })
+        .filter(Boolean);
+      if (activity.length) {
+        rows.push(`  ${item.label}`);
+        rows.push(...activity);
+      } else {
+        notAddressed.push(`${section.title} / ${item.label}`);
+      }
+    }
+    if (rows.length) {
+      lines.push(`── ${section.title} ──`);
+      lines.push(...rows);
+      lines.push('');
+    }
+  }
+  if (notAddressed.length) {
+    lines.push('── Not addressed ──');
+    lines.push(...notAddressed.map(x => `  • ${x}`));
+    lines.push('');
+  }
+  lines.push(`Sent from Closing Manager Checklist · ${new Date().toLocaleString()}`);
+  return lines.join('\n');
+}
+
+// ── PDF Export (Overview, not a checklist copy) ────────────────────────────
+
+async function exportOverviewPdf({ day, storeNumber, slotData }) {
   const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'letter', compress: true });
   const pageW = pdf.internal.pageSize.getWidth();
   const pageH = pdf.internal.pageSize.getHeight();
-  const M = 40;                    // page margin
+  const M = 40;
   const usableW = pageW - M * 2;
+  const PB = pageH - M - 20;
 
   const dayLabel = DAYS.find(d => d.id === day)?.label ?? day;
   const now = new Date();
-  const dateStr = now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  const dateStr = now.toLocaleDateString('en-US', {
+    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+  });
 
   let y = M;
 
-  // ── Header block ─────────────────────────────────────────────────────
-  pdf.setFillColor(0, 113, 206); // #0071CE
+  // Blue header band.
+  pdf.setFillColor(0, 113, 206);
   pdf.rect(M, y, usableW, 60, 'F');
   pdf.setTextColor(255, 255, 255);
   pdf.setFont('helvetica', 'bold');
   pdf.setFontSize(16);
-  pdf.text(`${storeNumber ? `Store ${storeNumber} — ` : ''}${dayLabel} First Pick Checklist`, M + 14, y + 24);
+  pdf.text(`${storeNumber ? `Store ${storeNumber} — ` : ''}${dayLabel} First Pick`, M + 14, y + 24);
   pdf.setFont('helvetica', 'normal');
   pdf.setFontSize(10);
   pdf.text(dateStr, M + 14, y + 44);
   y += 76;
 
-  // ── Slot names row ───────────────────────────────────────────────────
-  pdf.setTextColor(40, 40, 40);
-  pdf.setDrawColor(220, 220, 220);
-  pdf.setLineWidth(0.5);
+  // Slot names line.
+  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(10);
+  pdf.setTextColor(60, 60, 60);
   const slotColW = usableW / SLOTS.length;
   for (let i = 0; i < SLOTS.length; i++) {
     const slot = SLOTS[i];
     const x = M + i * slotColW;
     pdf.setFont('helvetica', 'bold');
-    pdf.setFontSize(9);
+    pdf.setFontSize(8);
     pdf.setTextColor(120, 120, 120);
-    pdf.text(slot.label.toUpperCase(), x + 8, y + 12);
+    pdf.text(slot.label.toUpperCase(), x + 4, y + 10);
     pdf.setFont('helvetica', 'bold');
     pdf.setFontSize(12);
     pdf.setTextColor(30, 30, 30);
-    const name = slotData(day, slot.id).name || '—';
-    pdf.text(name, x + 8, y + 30);
+    pdf.text(slotData(day, slot.id).name || '—', x + 4, y + 26);
   }
-  pdf.setDrawColor(220, 220, 220);
-  pdf.line(M, y + 40, M + usableW, y + 40);
-  y += 56;
+  pdf.setDrawColor(230, 230, 230);
+  pdf.line(M, y + 34, M + usableW, y + 34);
+  y += 46;
 
-  // ── Sections ─────────────────────────────────────────────────────────
+  // ── Only render items that have activity ─────────────────────────────
+  const notAddressed = [];
+
   for (const section of WEEKEND_SECTIONS) {
-    y = drawSection({ pdf, section, day, slotData, y, M, usableW, pageH, pageW });
+    const activeItems = section.items.filter(item =>
+      SLOTS.some(slot => {
+        const s = slotData(day, slot.id);
+        return s.checks[item.id] || (s.photos[item.id] || []).length > 0 || (s.notes[item.id] || '').trim();
+      })
+    );
+    const inactiveItems = section.items.filter(item => !activeItems.includes(item));
+    inactiveItems.forEach(i => notAddressed.push(`${section.title} / ${i.label}`));
+
+    if (!activeItems.length) continue;
+
+    // Section header.
+    y = pageBreak(pdf, y, 30, M, PB);
+    const rgb = hexToRgb(section.color);
+    pdf.setFillColor(rgb.r, rgb.g, rgb.b);
+    pdf.rect(M, y, usableW, 22, 'F');
+    pdf.setTextColor(255, 255, 255);
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(11);
+    pdf.text(section.title.toUpperCase(), M + 10, y + 15);
+    y += 30;
+
+    // Each active item.
+    for (const item of activeItems) {
+      y = drawItemOverview({ pdf, item, section, day, slotData, y, M, usableW, PB });
+    }
+    y += 4;
   }
 
-  // ── Footer on every page ─────────────────────────────────────────────
+  // ── Not addressed section ────────────────────────────────────────────
+  if (notAddressed.length) {
+    y = pageBreak(pdf, y, 40, M, PB);
+    pdf.setFillColor(245, 245, 245);
+    pdf.rect(M, y, usableW, 22, 'F');
+    pdf.setTextColor(120, 120, 120);
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(11);
+    pdf.text('NOT ADDRESSED', M + 10, y + 15);
+    y += 30;
+    pdf.setTextColor(80, 80, 80);
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(10);
+    for (const label of notAddressed) {
+      y = pageBreak(pdf, y, 14, M, PB);
+      pdf.text(`•  ${label}`, M + 12, y + 10);
+      y += 14;
+    }
+  }
+
+  // Footer on every page.
   const pageCount = pdf.internal.getNumberOfPages();
   for (let i = 1; i <= pageCount; i++) {
     pdf.setPage(i);
@@ -458,145 +589,118 @@ async function exportProfessionalPdf({ day, storeNumber, slotData }) {
   pdf.save(`weekend-firstpick-${dayLabel.toLowerCase()}-${now.toISOString().slice(0, 10)}.pdf`);
 }
 
-function drawSection({ pdf, section, day, slotData, y, M, usableW, pageH, pageW }) {
-  const PB = pageH - M - 20; // page bottom cutoff (leave room for footer)
-
-  // Section header band.
-  y = pageBreakIfNeeded(pdf, y, 30, M, PB);
-  const rgb = hexToRgb(section.color);
-  pdf.setFillColor(rgb.r, rgb.g, rgb.b);
-  pdf.rect(M, y, usableW, 22, 'F');
-  pdf.setTextColor(255, 255, 255);
+// Renders one item as a mini-report: title, per-slot activity lines,
+// optional notes, and inline photos with captions.
+function drawItemOverview({ pdf, item, section, day, slotData, y, M, usableW, PB }) {
+  // Item title.
+  y = pageBreak(pdf, y, 24, M, PB);
+  pdf.setTextColor(20, 20, 20);
   pdf.setFont('helvetica', 'bold');
   pdf.setFontSize(11);
-  pdf.text(section.title.toUpperCase(), M + 10, y + 15);
-  y += 30;
+  pdf.text(item.label, M + 6, y + 12);
+  y += 20;
 
-  // Items.
-  for (const item of section.items) {
-    y = drawItem({ pdf, item, section, day, slotData, y, M, usableW, PB });
+  // Per-slot activity block.
+  for (const slot of SLOTS) {
+    const s = slotData(day, slot.id);
+    const checked = !!s.checks[item.id];
+    const nPhotos = (s.photos[item.id] || []).length;
+    const note    = (s.notes[item.id]  || '').trim();
+    if (!checked && !nPhotos && !note) continue;
+
+    y = pageBreak(pdf, y, note ? 30 : 16, M, PB);
+    // Status glyph.
+    const rgb = hexToRgb(section.color);
+    if (checked) {
+      pdf.setFillColor(rgb.r, rgb.g, rgb.b);
+      pdf.circle(M + 12, y + 5, 3, 'F');
+    } else {
+      pdf.setDrawColor(180, 180, 180);
+      pdf.circle(M + 12, y + 5, 3, 'S');
+    }
+    // Activity line.
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(10);
+    pdf.setTextColor(60, 60, 60);
+    const parts = [slot.label];
+    if (s.name) parts.push(`· ${s.name}`);
+    if (nPhotos) parts.push(`· ${nPhotos} photo${nPhotos > 1 ? 's' : ''}`);
+    pdf.text(parts.join(' '), M + 22, y + 8);
+    y += 14;
+
+    // Note.
+    if (note) {
+      const wrapped = pdf.splitTextToSize(`"${note}"`, usableW - 30);
+      pdf.setFont('helvetica', 'italic');
+      pdf.setTextColor(90, 90, 90);
+      pdf.setFontSize(9);
+      const noteH = wrapped.length * 11;
+      y = pageBreak(pdf, y, noteH + 4, M, PB);
+      pdf.text(wrapped, M + 22, y + 8);
+      y += noteH + 2;
+    }
   }
+
+  // Photos row.
+  const allPhotos = [];
+  for (const slot of SLOTS) {
+    const s = slotData(day, slot.id);
+    for (const p of (s.photos[item.id] || [])) {
+      allPhotos.push({ ...p, _slotLabel: slot.label });
+    }
+  }
+  if (allPhotos.length) {
+    y = drawPhotoRow({ pdf, photos: allPhotos, y, M, usableW, PB });
+  }
+  y += 8;
+
+  // Divider.
+  pdf.setDrawColor(240, 240, 240);
+  pdf.line(M, y, M + usableW, y);
   y += 6;
   return y;
 }
 
-function drawItem({ pdf, item, section, day, slotData, y, M, usableW, PB }) {
-  // Gather per-slot state.
-  const slotStates = SLOTS.map(slot => {
-    const { checks, photos } = slotData(day, slot.id);
-    return {
-      slot,
-      checked: !!checks[item.id],
-      photos: photos[item.id] || [],
-      slotName: slotData(day, slot.id).name || '',
-    };
-  });
+function drawPhotoRow({ pdf, photos, y, M, usableW, PB }) {
+  const PW = 90, PH = 90, GAP = 8, CAP = 22;
+  const totalH = PH + CAP;
+  let x = M + 22;
+  let rowMaxY = y;
 
-  const hasPhotos = slotStates.some(s => s.photos.length > 0);
-  const rowH = 22;
-  // Estimate photo block height (110pt tall if any photos, else 0).
-  const photoBlockH = hasPhotos ? 130 : 0;
-  y = pageBreakIfNeeded(pdf, y, rowH + photoBlockH + 6, M, PB);
-
-  // Item label + checkboxes.
-  pdf.setDrawColor(230, 230, 230);
-  pdf.setLineWidth(0.4);
-  pdf.line(M, y + rowH, M + usableW, y + rowH);
-
-  pdf.setTextColor(30, 30, 30);
-  pdf.setFont('helvetica', 'normal');
-  pdf.setFontSize(11);
-  pdf.text(item.label, M + 6, y + 15);
-
-  // Checkboxes and slot status on the right half.
-  const slotColW = (usableW * 0.55) / SLOTS.length;
-  const slotBaseX = M + usableW * 0.45;
-  for (let i = 0; i < slotStates.length; i++) {
-    const s = slotStates[i];
-    const cx = slotBaseX + i * slotColW + slotColW / 2;
-    const boxSize = 12;
-    const boxX = cx - boxSize / 2;
-    const boxY = y + 5;
-    // Draw box.
-    pdf.setDrawColor(160, 160, 160);
-    pdf.setLineWidth(0.6);
-    if (s.checked) {
-      const rgb = hexToRgb(section.color);
-      pdf.setFillColor(rgb.r, rgb.g, rgb.b);
-      pdf.rect(boxX, boxY, boxSize, boxSize, 'FD');
-      // Checkmark
-      pdf.setDrawColor(255, 255, 255);
-      pdf.setLineWidth(1.5);
-      pdf.line(boxX + 3,  boxY + 6.5, boxX + 5.5, boxY + 9);
-      pdf.line(boxX + 5.5, boxY + 9,   boxX + 10, boxY + 3.5);
-    } else {
-      pdf.rect(boxX, boxY, boxSize, boxSize, 'S');
+  for (const p of photos) {
+    if (x + PW > M + usableW) {
+      x = M + 22;
+      y = rowMaxY + GAP;
     }
-    // Slot label to the right of the box.
-    pdf.setFont('helvetica', 'normal');
+    y = pageBreak(pdf, y, totalH + 4, M, PB);
+    if (y === M + 6) { x = M + 22; rowMaxY = y; }
+
+    try {
+      pdf.addImage(p.dataUrl, 'JPEG', x, y, PW, PH, undefined, 'FAST');
+    } catch {
+      pdf.setDrawColor(200, 200, 200);
+      pdf.rect(x, y, PW, PH, 'S');
+    }
+    // Caption.
+    pdf.setFont('helvetica', 'bold');
     pdf.setFontSize(8);
+    pdf.setTextColor(50, 50, 50);
+    const who = p.addedBy || 'Unknown';
+    pdf.text(who.slice(0, 16), x, y + PH + 10);
+    pdf.setFont('helvetica', 'normal');
     pdf.setTextColor(120, 120, 120);
-    pdf.text(s.slot.label, cx + boxSize / 2 + 6, y + 14);
-  }
-  y += rowH;
+    const time = p.addedAt ? new Date(p.addedAt).toLocaleString('en-US', {
+      month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+    }) : '';
+    pdf.text(`${p._slotLabel} · ${time}`, x, y + PH + 20);
 
-  // Photos block underneath the row (if any).
-  if (hasPhotos) {
-    y = drawPhotos({ pdf, slotStates, y, M, usableW, PB });
+    x += PW + GAP;
+    rowMaxY = Math.max(rowMaxY, y + totalH);
   }
-  return y;
+  return rowMaxY;
 }
 
-function drawPhotos({ pdf, slotStates, y, M, usableW, PB }) {
-  const PHOTO_W = 100;   // 100pt ≈ 1.4"
-  const PHOTO_H = 100;
-  const GAP     = 8;
-  const CAP_H   = 22;    // caption below photo
-  const totalItemH = PHOTO_H + CAP_H;
-
-  let x = M + 20;
-  let maxY = y;
-
-  for (const s of slotStates) {
-    for (const p of s.photos) {
-      // Wrap to next line if we'd exceed the right margin.
-      if (x + PHOTO_W > M + usableW) {
-        x = M + 20;
-        y = maxY + GAP;
-      }
-      // Page break if we can't fit this photo.
-      y = pageBreakIfNeeded(pdf, y, totalItemH + 6, M, PB);
-      // Refresh x if we broke to a new page.
-      if (y === M + 6) x = M + 20;
-
-      try {
-        pdf.addImage(p.dataUrl, 'JPEG', x, y, PHOTO_W, PHOTO_H, undefined, 'FAST');
-      } catch (e) {
-        // Skip broken image, don't blow up the whole export.
-        pdf.setDrawColor(200, 200, 200);
-        pdf.rect(x, y, PHOTO_W, PHOTO_H, 'S');
-      }
-      // Caption.
-      pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(8);
-      pdf.setTextColor(60, 60, 60);
-      const who = p.addedBy || s.slotName || 'Unknown';
-      pdf.text(who, x, y + PHOTO_H + 10);
-      pdf.setFont('helvetica', 'normal');
-      pdf.setTextColor(120, 120, 120);
-      const time = p.addedAt ? new Date(p.addedAt).toLocaleString('en-US', {
-        month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
-      }) : '';
-      pdf.text(`${s.slot.label} · ${time}`, x, y + PHOTO_H + 20);
-
-      x += PHOTO_W + GAP;
-      maxY = Math.max(maxY, y + totalItemH);
-    }
-  }
-  return maxY + 8;
-}
-
-function pageBreakIfNeeded(pdf, y, blockH, M, PB) {
+function pageBreak(pdf, y, blockH, M, PB) {
   if (y + blockH > PB) {
     pdf.addPage();
     return M + 6;

@@ -6,13 +6,13 @@ import { storage } from '../lib/storage';
 const STORAGE_KEY = (storeNumber) => `cmc:weekend:${storeNumber || 'unset'}`;
 
 // Shape for one day+slot combo:
-// { name: string, checks: { [itemId]: boolean }, photos: { [itemId]: Photo[] } }
+// { name: string, checks: { [itemId]: bool }, photos: { [itemId]: Photo[] }, notes: { [itemId]: string } }
 // Full state: { [day]: { [slotId]: SlotState } }
 
 function initDay() {
   const day = {};
   for (const slot of SLOTS) {
-    day[slot.id] = { name: '', checks: {}, photos: {} };
+    day[slot.id] = { name: '', checks: {}, photos: {}, notes: {} };
   }
   return day;
 }
@@ -38,6 +38,7 @@ function loadState(storeNumber) {
             name:   parsed[day][slot.id].name   || '',
             checks: parsed[day][slot.id].checks || {},
             photos: parsed[day][slot.id].photos || {},
+            notes:  parsed[day][slot.id].notes  || {},
           };
         }
       }
@@ -62,6 +63,14 @@ function reducer(state, action) {
 
     case 'SET_NAME':
       return withSlot(s => ({ ...s, name: action.value }));
+
+    case 'SET_NOTE': {
+      const { itemId, value } = action;
+      return withSlot(s => ({
+        ...s,
+        notes: { ...s.notes, [itemId]: value },
+      }));
+    }
 
     case 'TOGGLE_CHECK': {
       const { itemId } = action;
@@ -147,13 +156,14 @@ export function WeekendProvider({ children }) {
   }, [state, storeNumber]);
 
   const setName     = useCallback((day, slot, value)          => dispatch({ type: 'SET_NAME',     day, slot, value }),        []);
+  const setNote     = useCallback((day, slot, itemId, value)  => dispatch({ type: 'SET_NOTE',    day, slot, itemId, value }), []);
   const toggle      = useCallback((day, slot, itemId)         => dispatch({ type: 'TOGGLE_CHECK', day, slot, itemId }),       []);
   const addPhoto    = useCallback((day, slot, itemId, photo)  => dispatch({ type: 'ADD_PHOTO',    day, slot, itemId, photo }), []);
   const removePhoto = useCallback((day, slot, itemId, photoId) => dispatch({ type: 'REMOVE_PHOTO', day, slot, itemId, photoId }), []);
   const resetDay    = useCallback((day)                        => dispatch({ type: 'RESET_DAY',    day, slot: null }),         []);
 
   const slotData = useCallback(
-    (day, slot) => state[day]?.[slot] ?? { name: '', checks: {}, photos: {} },
+    (day, slot) => state[day]?.[slot] ?? { name: '', checks: {}, photos: {}, notes: {} },
     [state]
   );
 
@@ -166,7 +176,7 @@ export function WeekendProvider({ children }) {
 
   return (
     <Ctx.Provider value={{
-      state, slotData, setName, toggle, addPhoto, removePhoto, resetDay,
+      state, slotData, setName, setNote, toggle, addPhoto, removePhoto, resetDay,
       countChecked, totalItems, storeNumber, userName,
     }}>
       {children}
