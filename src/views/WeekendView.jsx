@@ -34,7 +34,7 @@ export default function WeekendView() {
   function handleEmail() {
     const label   = DAYS.find(d => d.id === day)?.label ?? day;
     const dateStr = new Date().toLocaleDateString();
-    const subject = `${storeNumber ? `Store ${storeNumber} · ` : ''}${label} First Pick Checklist · ${dateStr}`;
+    const subject = `${storeNumber ? `Store ${storeNumber} · ` : ''}${label} FTPR Checklist · ${dateStr}`;
     const body    = buildOverviewText({ day, storeNumber, slotData });
     const to      = storage.getSettings().emailRecipient || '';
     window.location.href = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
@@ -72,7 +72,7 @@ export default function WeekendView() {
       {/* Toolbar */}
       <div className="flex items-center justify-between mb-4">
         <span className="text-xs text-slate-500 font-medium">
-          {dayLabel} · First Pick Checklist
+          {dayLabel} · FTPR Checklist
         </span>
         <div className="flex gap-2">
           <button
@@ -91,21 +91,13 @@ export default function WeekendView() {
         </div>
       </div>
 
-      {/* Header card with names */}
+      {/* Header card */}
       <div className="bg-white rounded-2xl ring-1 ring-slate-200 overflow-hidden mb-3">
         <div className="bg-[#0071CE] px-4 py-3">
           <div className="text-white font-bold text-base">
-            {storeNumber ? `Store ${storeNumber} — ` : ''}{dayLabel} · First Pick Checklist
+            {storeNumber ? `Store ${storeNumber} — ` : ''}{dayLabel} · FTPR Checklist
           </div>
           <div className="text-blue-100 text-xs mt-0.5">Areas with first-time pick issues</div>
-        </div>
-        <div className="grid grid-cols-2 divide-x divide-slate-200 border-t border-slate-200">
-          {SLOTS.map(slot => (
-            <div key={slot.id} className="p-3">
-              <div className="text-[11px] uppercase tracking-wide text-slate-500 font-semibold">{slot.label}</div>
-              <NameInput day={day} slotId={slot.id} />
-            </div>
-          ))}
         </div>
       </div>
 
@@ -160,6 +152,17 @@ function SectionPanel({ section, day, expanded, onToggle, expandedItems, onToggl
 
       {expanded && (
         <div className="border-t border-slate-100">
+          {/* Per-section assignee inputs, one per slot */}
+          <div className="grid grid-cols-2 divide-x divide-slate-200 border-b border-slate-100 bg-slate-50">
+            {SLOTS.map(slot => (
+              <div key={slot.id} className="p-2">
+                <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">
+                  {slot.label} Assignee
+                </div>
+                <AssigneeInput day={day} slotId={slot.id} sectionId={section.id} />
+              </div>
+            ))}
+          </div>
           <table className="w-full text-sm border-collapse">
             <thead>
               <tr className="bg-slate-50">
@@ -213,7 +216,7 @@ function ItemRow({ item, section, day, zebra, expanded, onToggle }) {
         </td>
         {SLOTS.map(slot => (
           <td key={slot.id} className="px-2 py-2.5 border-b border-slate-100 align-middle">
-            <SlotCell day={day} slotId={slot.id} itemId={item.id} />
+            <SlotCell day={day} slotId={slot.id} itemId={item.id} sectionId={section.id} />
           </td>
         ))}
       </tr>
@@ -234,7 +237,7 @@ function ItemRow({ item, section, day, zebra, expanded, onToggle }) {
 
 // ── Slot cell (horizontal: check + camera + thumbs in one row) ─────────────
 
-function SlotCell({ day, slotId, itemId }) {
+function SlotCell({ day, slotId, itemId, sectionId }) {
   const { slotData, toggle, removePhoto } = useWeekend();
   const { checks, photos } = slotData(day, slotId);
   const checked = !!checks[itemId];
@@ -255,7 +258,7 @@ function SlotCell({ day, slotId, itemId }) {
         {checked && <CheckIcon />}
       </button>
 
-      <PhotoBtn day={day} slotId={slotId} itemId={itemId} />
+      <PhotoBtn day={day} slotId={slotId} itemId={itemId} sectionId={sectionId} />
 
       {itemPhotos.map(p => (
         <div key={p.id} className="relative shrink-0" title={photoTitle(p)}>
@@ -278,15 +281,16 @@ function photoTitle(p) {
 
 // ── Inputs ─────────────────────────────────────────────────────────────────
 
-function NameInput({ day, slotId }) {
-  const { slotData, setName, userName } = useWeekend();
-  const { name } = slotData(day, slotId);
-  const displayValue = name || (slotId === 'slot_a' ? (userName || '') : '');
+function AssigneeInput({ day, slotId, sectionId }) {
+  const { slotData, setAssignee, userName } = useWeekend();
+  const stored = slotData(day, slotId).assignees[sectionId] ?? undefined;
+  // First-run default: show logged-in user's name in slot_a only if never set yet.
+  const displayValue = stored !== undefined ? stored : (slotId === 'slot_a' ? (userName || '') : '');
   return (
     <input
       value={displayValue}
-      onChange={e => setName(day, slotId, e.target.value)}
-      placeholder="Name…"
+      onChange={e => setAssignee(day, slotId, sectionId, e.target.value)}
+      placeholder="Assign associate…"
       className="mt-1 block w-full text-sm border border-slate-200 rounded px-2 py-1.5 bg-white focus:outline-none focus:border-[#0071CE]"
     />
   );
@@ -311,7 +315,7 @@ function NoteInput({ day, slotId, itemId, slotLabel }) {
   );
 }
 
-function PhotoBtn({ day, slotId, itemId }) {
+function PhotoBtn({ day, slotId, itemId, sectionId }) {
   const { addPhoto, slotData, userName } = useWeekend();
   const fileRef = useRef(null);
   const [busy, setBusy] = useState(false);
@@ -321,7 +325,9 @@ function PhotoBtn({ day, slotId, itemId }) {
     if (!files.length) return;
     setBusy(true);
     try {
-      const slotName = slotData(day, slotId).name || userName || 'Unknown';
+      const s = slotData(day, slotId);
+      // Prefer the section-level assignee, fall back to the slot name (legacy), then logged-in user.
+      const uploader = (sectionId && s.assignees[sectionId]) || s.name || userName || 'Unknown';
       for (const f of files) {
         if (!f.type.startsWith('image/')) continue;
         const dataUrl = await compressImage(f);
@@ -329,14 +335,14 @@ function PhotoBtn({ day, slotId, itemId }) {
           id: cryptoId(),
           dataUrl,
           addedAt: new Date().toISOString(),
-          addedBy: slotName,
+          addedBy: uploader,
         });
       }
     } finally {
       setBusy(false);
       if (fileRef.current) fileRef.current.value = '';
     }
-  }, [day, slotId, itemId, addPhoto, slotData, userName]);
+  }, [day, slotId, itemId, sectionId, addPhoto, slotData, userName]);
 
   return (
     <>
@@ -418,32 +424,34 @@ function buildOverviewText({ day, storeNumber, slotData }) {
   const dayLabel = DAYS.find(d => d.id === day)?.label ?? day;
   const dateStr  = new Date().toLocaleDateString();
   const lines = [];
-  lines.push(`${storeNumber ? `Store ${storeNumber} — ` : ''}${dayLabel} First Pick Checklist`);
+  lines.push(`${storeNumber ? `Store ${storeNumber} — ` : ''}${dayLabel} FTPR Checklist`);
   lines.push(dateStr);
-  lines.push('');
-  for (const slot of SLOTS) {
-    const name = slotData(day, slot.id).name || '(no name)';
-    lines.push(`${slot.label}: ${name}`);
-  }
   lines.push('');
 
   const notAddressed = [];
   for (const section of WEEKEND_SECTIONS) {
     const rows = [];
+    // Section header includes per-slot assignees so leadership sees who owned each shift.
+    const assigneeLine = SLOTS.map(slot => {
+      const assignee = slotData(day, slot.id).assignees[section.id] || '(unassigned)';
+      return `${slot.label}: ${assignee}`;
+    }).join('  ·  ');
+
     for (const item of section.items) {
       const activity = SLOTS
         .map(slot => {
           const s = slotData(day, slot.id);
-          const checked = !!s.checks[item.id];
-          const nPhotos = (s.photos[item.id] || []).length;
-          const note    = (s.notes[item.id]  || '').trim();
+          const checked  = !!s.checks[item.id];
+          const nPhotos  = (s.photos[item.id] || []).length;
+          const note     = (s.notes[item.id]  || '').trim();
+          const assignee = s.assignees[section.id] || '';
           if (!checked && !nPhotos && !note) return null;
           const parts = [];
           if (checked) parts.push('✓');
           parts.push(slot.label);
-          if (s.name) parts.push(`(${s.name})`);
-          if (nPhotos) parts.push(`${nPhotos} photo${nPhotos > 1 ? 's' : ''}`);
-          if (note)    parts.push(`— "${note}"`);
+          if (assignee) parts.push(`(${assignee})`);
+          if (nPhotos)  parts.push(`${nPhotos} photo${nPhotos > 1 ? 's' : ''}`);
+          if (note)     parts.push(`— "${note}"`);
           return `    ${parts.join(' ')}`;
         })
         .filter(Boolean);
@@ -456,6 +464,7 @@ function buildOverviewText({ day, storeNumber, slotData }) {
     }
     if (rows.length) {
       lines.push(`── ${section.title} ──`);
+      lines.push(`   ${assigneeLine}`);
       lines.push(...rows);
       lines.push('');
     }
@@ -493,32 +502,11 @@ async function exportOverviewPdf({ day, storeNumber, slotData }) {
   pdf.setTextColor(255, 255, 255);
   pdf.setFont('helvetica', 'bold');
   pdf.setFontSize(16);
-  pdf.text(`${storeNumber ? `Store ${storeNumber} — ` : ''}${dayLabel} First Pick`, M + 14, y + 24);
+  pdf.text(`${storeNumber ? `Store ${storeNumber} — ` : ''}${dayLabel} FTPR Checklist`, M + 14, y + 24);
   pdf.setFont('helvetica', 'normal');
   pdf.setFontSize(10);
   pdf.text(dateStr, M + 14, y + 44);
-  y += 76;
-
-  // Slot names line.
-  pdf.setFont('helvetica', 'bold');
-  pdf.setFontSize(10);
-  pdf.setTextColor(60, 60, 60);
-  const slotColW = usableW / SLOTS.length;
-  for (let i = 0; i < SLOTS.length; i++) {
-    const slot = SLOTS[i];
-    const x = M + i * slotColW;
-    pdf.setFont('helvetica', 'bold');
-    pdf.setFontSize(8);
-    pdf.setTextColor(120, 120, 120);
-    pdf.text(slot.label.toUpperCase(), x + 4, y + 10);
-    pdf.setFont('helvetica', 'bold');
-    pdf.setFontSize(12);
-    pdf.setTextColor(30, 30, 30);
-    pdf.text(slotData(day, slot.id).name || '—', x + 4, y + 26);
-  }
-  pdf.setDrawColor(230, 230, 230);
-  pdf.line(M, y + 34, M + usableW, y + 34);
-  y += 46;
+  y += 84;
 
   // ── Only render items that have activity ─────────────────────────────
   const notAddressed = [];
@@ -536,7 +524,7 @@ async function exportOverviewPdf({ day, storeNumber, slotData }) {
     if (!activeItems.length) continue;
 
     // Section header.
-    y = pageBreak(pdf, y, 30, M, PB);
+    y = pageBreak(pdf, y, 46, M, PB);
     const rgb = hexToRgb(section.color);
     pdf.setFillColor(rgb.r, rgb.g, rgb.b);
     pdf.rect(M, y, usableW, 22, 'F');
@@ -544,7 +532,24 @@ async function exportOverviewPdf({ day, storeNumber, slotData }) {
     pdf.setFont('helvetica', 'bold');
     pdf.setFontSize(11);
     pdf.text(section.title.toUpperCase(), M + 10, y + 15);
-    y += 30;
+    y += 22;
+
+    // Per-slot assignee line under the section header.
+    pdf.setFillColor(248, 248, 248);
+    pdf.rect(M, y, usableW, 16, 'F');
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(9);
+    pdf.setTextColor(80, 80, 80);
+    const slotColW = usableW / SLOTS.length;
+    for (let i = 0; i < SLOTS.length; i++) {
+      const slot = SLOTS[i];
+      const assignee = slotData(day, slot.id).assignees[section.id] || '—';
+      pdf.text(`${slot.label}: `, M + 10 + i * slotColW, y + 11);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text(assignee, M + 10 + i * slotColW + pdf.getTextWidth(`${slot.label}: `), y + 11);
+      pdf.setFont('helvetica', 'normal');
+    }
+    y += 20;
 
     // Each active item.
     for (const item of activeItems) {
@@ -622,8 +627,9 @@ function drawItemOverview({ pdf, item, section, day, slotData, y, M, usableW, PB
     pdf.setFont('helvetica', 'normal');
     pdf.setFontSize(10);
     pdf.setTextColor(60, 60, 60);
+    const assignee = s.assignees[section.id] || '';
     const parts = [slot.label];
-    if (s.name) parts.push(`· ${s.name}`);
+    if (assignee) parts.push(`· ${assignee}`);
     if (nPhotos) parts.push(`· ${nPhotos} photo${nPhotos > 1 ? 's' : ''}`);
     pdf.text(parts.join(' '), M + 22, y + 8);
     y += 14;

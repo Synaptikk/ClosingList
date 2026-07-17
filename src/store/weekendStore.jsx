@@ -6,13 +6,19 @@ import { storage } from '../lib/storage';
 const STORAGE_KEY = (storeNumber) => `cmc:weekend:${storeNumber || 'unset'}`;
 
 // Shape for one day+slot combo:
-// { name: string, checks: { [itemId]: bool }, photos: { [itemId]: Photo[] }, notes: { [itemId]: string } }
+// {
+//   name: string,                        // deprecated; kept for backwards compat with older localStorage payloads
+//   assignees: { [sectionId]: string },  // per-section associate for THIS slot on THIS day
+//   checks: { [itemId]: bool },
+//   photos: { [itemId]: Photo[] },
+//   notes:  { [itemId]: string },
+// }
 // Full state: { [day]: { [slotId]: SlotState } }
 
 function initDay() {
   const day = {};
   for (const slot of SLOTS) {
-    day[slot.id] = { name: '', checks: {}, photos: {}, notes: {} };
+    day[slot.id] = { name: '', assignees: {}, checks: {}, photos: {}, notes: {} };
   }
   return day;
 }
@@ -35,10 +41,11 @@ function loadState(storeNumber) {
       for (const slot of SLOTS) {
         if (parsed[day][slot.id]) {
           merged[day][slot.id] = {
-            name:   parsed[day][slot.id].name   || '',
-            checks: parsed[day][slot.id].checks || {},
-            photos: parsed[day][slot.id].photos || {},
-            notes:  parsed[day][slot.id].notes  || {},
+            name:      parsed[day][slot.id].name      || '',
+            assignees: parsed[day][slot.id].assignees || {},
+            checks:    parsed[day][slot.id].checks    || {},
+            photos:    parsed[day][slot.id].photos    || {},
+            notes:     parsed[day][slot.id].notes     || {},
           };
         }
       }
@@ -63,6 +70,14 @@ function reducer(state, action) {
 
     case 'SET_NAME':
       return withSlot(s => ({ ...s, name: action.value }));
+
+    case 'SET_ASSIGNEE': {
+      const { sectionId, value } = action;
+      return withSlot(s => ({
+        ...s,
+        assignees: { ...s.assignees, [sectionId]: value },
+      }));
+    }
 
     case 'SET_NOTE': {
       const { itemId, value } = action;
@@ -155,15 +170,16 @@ export function WeekendProvider({ children }) {
     return () => clearTimeout(saveTimer.current);
   }, [state, storeNumber]);
 
-  const setName     = useCallback((day, slot, value)          => dispatch({ type: 'SET_NAME',     day, slot, value }),        []);
-  const setNote     = useCallback((day, slot, itemId, value)  => dispatch({ type: 'SET_NOTE',    day, slot, itemId, value }), []);
-  const toggle      = useCallback((day, slot, itemId)         => dispatch({ type: 'TOGGLE_CHECK', day, slot, itemId }),       []);
-  const addPhoto    = useCallback((day, slot, itemId, photo)  => dispatch({ type: 'ADD_PHOTO',    day, slot, itemId, photo }), []);
-  const removePhoto = useCallback((day, slot, itemId, photoId) => dispatch({ type: 'REMOVE_PHOTO', day, slot, itemId, photoId }), []);
-  const resetDay    = useCallback((day)                        => dispatch({ type: 'RESET_DAY',    day, slot: null }),         []);
+  const setName     = useCallback((day, slot, value)                       => dispatch({ type: 'SET_NAME',     day, slot, value }),        []);
+  const setAssignee = useCallback((day, slot, sectionId, value)            => dispatch({ type: 'SET_ASSIGNEE', day, slot, sectionId, value }), []);
+  const setNote     = useCallback((day, slot, itemId, value)               => dispatch({ type: 'SET_NOTE',     day, slot, itemId, value }), []);
+  const toggle      = useCallback((day, slot, itemId)                      => dispatch({ type: 'TOGGLE_CHECK', day, slot, itemId }),       []);
+  const addPhoto    = useCallback((day, slot, itemId, photo)               => dispatch({ type: 'ADD_PHOTO',    day, slot, itemId, photo }), []);
+  const removePhoto = useCallback((day, slot, itemId, photoId)             => dispatch({ type: 'REMOVE_PHOTO', day, slot, itemId, photoId }), []);
+  const resetDay    = useCallback((day)                                    => dispatch({ type: 'RESET_DAY',    day, slot: null }),         []);
 
   const slotData = useCallback(
-    (day, slot) => state[day]?.[slot] ?? { name: '', checks: {}, photos: {}, notes: {} },
+    (day, slot) => state[day]?.[slot] ?? { name: '', assignees: {}, checks: {}, photos: {}, notes: {} },
     [state]
   );
 
@@ -176,7 +192,7 @@ export function WeekendProvider({ children }) {
 
   return (
     <Ctx.Provider value={{
-      state, slotData, setName, setNote, toggle, addPhoto, removePhoto, resetDay,
+      state, slotData, setName, setAssignee, setNote, toggle, addPhoto, removePhoto, resetDay,
       countChecked, totalItems, storeNumber, userName,
     }}>
       {children}

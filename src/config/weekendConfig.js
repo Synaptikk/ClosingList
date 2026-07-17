@@ -1,6 +1,7 @@
 // Weekend First-Pick Checklist
 // Two time slots per day: SLOT_A (12pm–3pm) and SLOT_B (3pm–6pm).
-// Each slot requires a manager name and checkbox + optional photo per item.
+// Each section gets a per-slot associate assignment; each item has a checkbox,
+// optional photos, and optional notes.
 
 export const SLOTS = [
   { id: 'slot_a', label: '12pm – 3pm' },
@@ -15,9 +16,9 @@ export const WEEKEND_SECTIONS = [
     title: 'Produce',
     color: '#16a34a',
     items: [
-      { id: 'wet_wall',         label: 'Wet wall' },
-      { id: 'fm_tables',        label: 'Farmers market tables' },
-      { id: 'berry_cooler',     label: 'Berry cooler' },
+      { id: 'wet_wall',         label: 'Wet Wall' },
+      { id: 'fm_tables',        label: 'Farmers Market Tables' },
+      { id: 'berry_cooler',     label: 'Berry Cooler' },
       { id: 'grapes',           label: 'Grapes' },
       { id: 'bananas',          label: 'Bananas' },
       { id: 'organic_bananas',  label: 'Organic Bananas' },
@@ -39,9 +40,9 @@ export const WEEKEND_SECTIONS = [
     title: 'Frozen Bunker',
     color: '#0284c7',
     items: [
-      { id: 'wall_97',       label: '97 wall' },
-      { id: 'bfast_meat',    label: 'Breakfast meat' },
-      { id: 'hotdog_saus',   label: 'Hot dogs / Sausage' },
+      { id: 'wall_97',       label: '97 Wall' },
+      { id: 'bfast_meat',    label: 'Breakfast Meat' },
+      { id: 'hotdog_saus',   label: 'Hot Dogs / Sausage' },
       { id: 'lunchables',    label: 'Lunchables' },
     ],
   },
@@ -60,7 +61,7 @@ export const WEEKEND_SECTIONS = [
     color: '#b45309',
     items: [
       { id: 'j1',            label: 'J1' },
-      { id: 'toilet_paper',  label: 'Toilet paper' },
+      { id: 'toilet_paper',  label: 'Toilet Paper' },
       { id: 'paper_towels',  label: 'Paper Towels' },
     ],
   },
@@ -70,7 +71,7 @@ export const WEEKEND_SECTIONS = [
     color: '#0f766e',
     items: [
       { id: 'cat_litter',     label: 'Cat Litter' },
-      { id: 'canned_cat',     label: 'Canned cat food' },
+      { id: 'canned_cat',     label: 'Canned Cat Food' },
     ],
   },
   {
@@ -78,7 +79,7 @@ export const WEEKEND_SECTIONS = [
     title: 'Pharmacy',
     color: '#9333ea',
     items: [
-      { id: 'lifestyle_nut', label: 'Lifestyle nutrition' },
+      { id: 'lifestyle_nut', label: 'Lifestyle Nutrition' },
       { id: 'vitamins',      label: 'Vitamins' },
     ],
   },
