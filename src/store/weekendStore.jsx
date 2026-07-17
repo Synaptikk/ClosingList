@@ -75,6 +75,8 @@ function reducer(state, action) {
       const { itemId, photo } = action;
       return withSlot(s => ({
         ...s,
+        // Adding a photo IS the proof of task done — auto-check.
+        checks: { ...s.checks, [itemId]: true },
         photos: { ...s.photos, [itemId]: [...(s.photos[itemId] || []), photo] },
       }));
     }
