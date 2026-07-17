@@ -35,6 +35,18 @@ export default function AssociateImportPanel() {
   const fileInputRef = useRef(null);
   const submitted = session.status === 'submitted';
 
+  // Auto-close the import panel when a live push (APAISuite or another manager)
+  // brings in a roster — keep the UI clean once data arrives.
+  const prevCount = useRef(session.associates.length);
+  useEffect(() => {
+    if (prevCount.current === 0 && session.associates.length > 0) {
+      setShowImport(false);
+      setPreview(null);
+      setInfo('Roster loaded.');
+    }
+    prevCount.current = session.associates.length;
+  }, [session.associates.length]);
+
   const storeNumber = useMemo(() => storage.getSettings()?.storeNumber || '', []);
   const [savedRoster, setSavedRoster] = useState(() => storage.getStoreRoster(storeNumber));
 
@@ -156,11 +168,24 @@ export default function AssociateImportPanel() {
               disabled={submitted}
               className="text-xs font-semibold bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg disabled:opacity-50"
             >+ Add</button>
-            <button
-              onClick={() => setShowImport(v => !v)}
-              disabled={submitted}
-              className="text-xs font-semibold bg-[#0071dc] text-white hover:bg-[#005bb5] px-3 py-1.5 rounded-lg disabled:opacity-50"
-            >{showImport ? 'Hide import' : 'Import / paste'}</button>
+            {/* Only show the Import button when the roster is empty for this store+day,
+                OR the user explicitly opened the import panel (so they can close it again). */}
+            {(session.associates.length === 0 || showImport) && (
+              <button
+                onClick={() => setShowImport(v => !v)}
+                disabled={submitted}
+                className="text-xs font-semibold bg-[#0071dc] text-white hover:bg-[#005bb5] px-3 py-1.5 rounded-lg disabled:opacity-50"
+              >{showImport ? 'Hide import' : 'Import / paste'}</button>
+            )}
+            {/* When associates are already loaded, give a small unobtrusive way back in. */}
+            {session.associates.length > 0 && !showImport && (
+              <button
+                onClick={() => setShowImport(true)}
+                disabled={submitted}
+                className="text-xs text-slate-500 hover:text-[#0071dc] underline underline-offset-2"
+                title="Replace or re-import the current roster"
+              >Re-import</button>
+            )}
           </div>
         </div>
 

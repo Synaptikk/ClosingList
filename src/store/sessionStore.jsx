@@ -265,23 +265,31 @@ export function SessionProvider({ children }) {
   }, []);
 
   // Bootstrap: recover an active session if one is stored.
-  // In cloud mode, valid past-day ids ({storeNbr}-YYYY-MM-DD) are honored — the user
-  // may have intentionally opened a past unsubmitted night from the Report tab.
-  // Only truly stale ids (pre-cloud random hex) get migrated to today.
+  // Rule: on load, always default to TODAY's session id. Yesterday's stored id
+  // is ignored (you get a fresh session for today). Past dates are still
+  // reachable explicitly via openSessionForDate from the Report tab.
   useEffect(() => {
     const storedId = storage.getActiveSessionId();
     if (!storedId) return;
     if (isFirebaseConfigured()) {
+      const todayId = deterministicSessionId(getStoreNumber(), todayISO());
       const validIdRe = /^\d+-\d{4}-\d{2}-\d{2}$/;
-      if (!validIdRe.test(storedId)) {
-        const todayId = deterministicSessionId(getStoreNumber(), todayISO());
+      // If stored id is invalid OR doesn't match today, replace with today's.
+      if (!validIdRe.test(storedId) || storedId !== todayId) {
         storage.setActiveSessionId(todayId);
-        const seed = makeBlankSession({ storeNumber: getStoreNumber(), sessionId: todayId });
-        dispatch({ type: 'load', session: seed });
+        const local = storage.getSession(todayId);
+        if (local) {
+          const blank = blankTasks();
+          local.tasks = { ...blank, ...(local.tasks || {}) };
+          dispatch({ type: 'load', session: local });
+        } else {
+          const seed = makeBlankSession({ storeNumber: getStoreNumber(), sessionId: todayId });
+          dispatch({ type: 'load', session: seed });
+        }
         return;
       }
-      // Valid id — could be today or a past date. Load from local if cached;
-      // otherwise seed and let sync hydrate from Firestore.
+      // Stored id IS today's — load from local cache if present, otherwise seed
+      // and let sync hydrate from Firestore.
       const local = storage.getSession(storedId);
       if (local) {
         const blank = blankTasks();
@@ -289,9 +297,7 @@ export function SessionProvider({ children }) {
         dispatch({ type: 'load', session: local });
         return;
       }
-      const dateMatch = storedId.match(/^(\d+)-(\d{4}-\d{2}-\d{2})$/);
       const seed = makeBlankSession({ storeNumber: getStoreNumber(), sessionId: storedId });
-      if (dateMatch) seed.date = new Date(dateMatch[2] + 'T00:00:00').toISOString();
       dispatch({ type: 'load', session: seed });
       return;
     }
