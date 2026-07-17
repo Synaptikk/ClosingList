@@ -329,7 +329,27 @@ export function WeekendProvider({ children }) {
   const setNote     = useCallback((day, slot, itemId, value)               => dispatch({ type: 'SET_NOTE',     day, slot, itemId, value }), []);
   const toggle      = useCallback((day, slot, itemId)                      => dispatch({ type: 'TOGGLE_CHECK', day, slot, itemId }),       []);
   const removePhoto = useCallback((day, slot, itemId, photoId)             => dispatch({ type: 'REMOVE_PHOTO', day, slot, itemId, photoId }), []);
-  const resetDay    = useCallback((day)                                    => dispatch({ type: 'RESET_DAY',    day, slot: null }),         []);
+  // Reset must survive an immediate refresh — flush both localStorage and
+  // Firestore synchronously so the user can't out-race the 200/350ms debounces.
+  const resetDay = useCallback((day) => {
+    dispatch({ type: 'RESET_DAY', day, slot: null });
+    // Build what the post-reset state should look like WITHOUT waiting for
+    // React to commit, then persist it right away.
+    const cur = stateRef.current || initState();
+    const post = { ...cur, [day]: initDay() };
+    try {
+      clearTimeout(saveTimer.current);
+      localStorage.setItem(STORAGE_KEY(storeNumber), JSON.stringify(post));
+    } catch (e) {
+      console.warn('[weekend] failed to persist reset', e);
+    }
+    // Force-flush the Firestore push with the freshly-computed state so
+    // deleteField() sentinels land before the user refreshes.
+    if (syncRef.current?.flushPush) {
+      stateRef.current = post; // sync engine's getState reads this ref
+      syncRef.current.flushPush();
+    }
+  }, [storeNumber]);
 
   // addPhoto: kicks off a background Storage upload when in cloud mode, so
   // remote users see the photo without needing the 2-3 MB dataUrl to travel
