@@ -9,6 +9,7 @@ import ChecklistView from './views/ChecklistView';
 import AssociatesView from './views/AssociatesView';
 import ReportView from './views/ReportView';
 import WeekendView from './views/WeekendView';
+import WeekendSyncIndicator from './components/WeekendSyncIndicator';
 
 export default function App() {
   return (
@@ -43,7 +44,14 @@ function AppInner() {
       <MobileHeader view={view} />
 
       <main className="pb-16">
-        {view === 'weekend' && <WeekendView />}
+        {view === 'weekend' && (
+          <>
+            <div className="px-3 pt-3 -mb-1 flex justify-end">
+              <WeekendSyncIndicator />
+            </div>
+            <WeekendView />
+          </>
+        )}
         {view !== 'weekend' && !session && <JoinSessionCard />}
         {view !== 'weekend' && session && view === 'home' && (
           <DashboardView
