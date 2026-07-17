@@ -1,14 +1,12 @@
-import { createContext, useCallback, useContext, useReducer } from 'react';
+import { createContext, useCallback, useContext, useEffect, useReducer, useRef, useState } from 'react';
 import { WEEKEND_DAYS, SLOTS, WEEKEND_SECTIONS } from '../config/weekendConfig';
 import { storage } from '../lib/storage';
 
+// Per-store persistence key. Different stores keep separate progress.
+const STORAGE_KEY = (storeNumber) => `cmc:weekend:${storeNumber || 'unset'}`;
+
 // Shape for one day+slot combo:
-// {
-//   name: string,                       // manager name
-//   checks: { [itemId]: boolean },      // checked state
-//   photos: { [itemId]: Photo[] },      // per-item photos
-// }
-//
+// { name: string, checks: { [itemId]: boolean }, photos: { [itemId]: Photo[] } }
 // Full state: { [day]: { [slotId]: SlotState } }
 
 function initDay() {
@@ -25,18 +23,43 @@ function initState() {
   return s;
 }
 
+function loadState(storeNumber) {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY(storeNumber));
+    if (!raw) return initState();
+    const parsed = JSON.parse(raw);
+    // Defensive merge — ensure all days/slots exist even if the saved shape is stale.
+    const merged = initState();
+    for (const day of WEEKEND_DAYS) {
+      if (!parsed[day]) continue;
+      for (const slot of SLOTS) {
+        if (parsed[day][slot.id]) {
+          merged[day][slot.id] = {
+            name:   parsed[day][slot.id].name   || '',
+            checks: parsed[day][slot.id].checks || {},
+            photos: parsed[day][slot.id].photos || {},
+          };
+        }
+      }
+    }
+    return merged;
+  } catch {
+    return initState();
+  }
+}
+
 function reducer(state, action) {
   const { day, slot } = action;
 
   function withSlot(updater) {
     const prev = state[day][slot];
-    return {
-      ...state,
-      [day]: { ...state[day], [slot]: updater(prev) },
-    };
+    return { ...state, [day]: { ...state[day], [slot]: updater(prev) } };
   }
 
   switch (action.type) {
+    case 'HYDRATE':
+      return action.state;
+
     case 'SET_NAME':
       return withSlot(s => ({ ...s, name: action.value }));
 
@@ -52,10 +75,7 @@ function reducer(state, action) {
       const { itemId, photo } = action;
       return withSlot(s => ({
         ...s,
-        photos: {
-          ...s.photos,
-          [itemId]: [...(s.photos[itemId] || []), photo],
-        },
+        photos: { ...s.photos, [itemId]: [...(s.photos[itemId] || []), photo] },
       }));
     }
 
@@ -84,22 +104,57 @@ function reducer(state, action) {
 const Ctx = createContext(null);
 
 export function WeekendProvider({ children }) {
-  const [state, dispatch] = useReducer(reducer, null, initState);
+  // Track the current store; reload state whenever it changes.
+  const [storeNumber, setStoreNumber] = useState(() => storage.getSettings().storeNumber || '');
+  const [userName,    setUserName]    = useState(() => storage.getSettings().userName    || '');
 
-  // Always read store number fresh from settings so it reflects any login change.
-  const storeNumber = storage.getSettings().storeNumber || '';
-  const userName    = storage.getSettings().userName    || '';
+  const [state, dispatch] = useReducer(reducer, storeNumber, loadState);
+  const saveTimer = useRef(null);
 
-  const setName  = useCallback((day, slot, value)         => dispatch({ type: 'SET_NAME',     day, slot, value }),       []);
-  const toggle   = useCallback((day, slot, itemId)         => dispatch({ type: 'TOGGLE_CHECK', day, slot, itemId }),      []);
-  const addPhoto = useCallback((day, slot, itemId, photo)  => dispatch({ type: 'ADD_PHOTO',    day, slot, itemId, photo }),[]);
-  const removePhoto = useCallback((day, slot, itemId, photoId) =>
-    dispatch({ type: 'REMOVE_PHOTO', day, slot, itemId, photoId }), []);
-  const resetDay = useCallback((day)                       => dispatch({ type: 'RESET_DAY',    day, slot: null }),         []);
+  // Watch settings changes (login screen, "Change store" flow, other tabs).
+  // Poll on a short interval — settings are set from React, not via storage events.
+  useEffect(() => {
+    const check = () => {
+      const s = storage.getSettings();
+      const nextStore = s.storeNumber || '';
+      const nextName  = s.userName    || '';
+      if (nextStore !== storeNumber) {
+        setStoreNumber(nextStore);
+        dispatch({ type: 'HYDRATE', state: loadState(nextStore) });
+      }
+      if (nextName !== userName) setUserName(nextName);
+    };
+    const iv = setInterval(check, 1000);
+    // Also re-check when other tabs write to localStorage.
+    const onStorage = () => check();
+    window.addEventListener('storage', onStorage);
+    return () => { clearInterval(iv); window.removeEventListener('storage', onStorage); };
+  }, [storeNumber, userName]);
 
-  const slotData = useCallback((day, slot) => state[day]?.[slot] ?? { name: '', checks: {}, photos: {} }, [state]);
+  // Debounced persist on every state change.
+  useEffect(() => {
+    clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      try {
+        localStorage.setItem(STORAGE_KEY(storeNumber), JSON.stringify(state));
+      } catch (e) {
+        console.warn('[weekend] failed to persist state', e);
+      }
+    }, 200);
+    return () => clearTimeout(saveTimer.current);
+  }, [state, storeNumber]);
 
-  // Count checked items across all sections for a given day+slot
+  const setName     = useCallback((day, slot, value)          => dispatch({ type: 'SET_NAME',     day, slot, value }),        []);
+  const toggle      = useCallback((day, slot, itemId)         => dispatch({ type: 'TOGGLE_CHECK', day, slot, itemId }),       []);
+  const addPhoto    = useCallback((day, slot, itemId, photo)  => dispatch({ type: 'ADD_PHOTO',    day, slot, itemId, photo }), []);
+  const removePhoto = useCallback((day, slot, itemId, photoId) => dispatch({ type: 'REMOVE_PHOTO', day, slot, itemId, photoId }), []);
+  const resetDay    = useCallback((day)                        => dispatch({ type: 'RESET_DAY',    day, slot: null }),         []);
+
+  const slotData = useCallback(
+    (day, slot) => state[day]?.[slot] ?? { name: '', checks: {}, photos: {} },
+    [state]
+  );
+
   const countChecked = useCallback((day, slot) => {
     const data = state[day]?.[slot]?.checks ?? {};
     return Object.values(data).filter(Boolean).length;
@@ -108,7 +163,10 @@ export function WeekendProvider({ children }) {
   const totalItems = WEEKEND_SECTIONS.reduce((n, s) => n + s.items.length, 0);
 
   return (
-    <Ctx.Provider value={{ state, slotData, setName, toggle, addPhoto, removePhoto, resetDay, countChecked, totalItems, storeNumber, userName }}>
+    <Ctx.Provider value={{
+      state, slotData, setName, toggle, addPhoto, removePhoto, resetDay,
+      countChecked, totalItems, storeNumber, userName,
+    }}>
       {children}
     </Ctx.Provider>
   );

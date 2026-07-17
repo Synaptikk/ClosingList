@@ -65,7 +65,7 @@ export const storage = {
   // ---- settings ----
   getSettings() {
     return safeParse(localStorage.getItem(SETTINGS_KEY), {
-      storeNumber: '1458', marketNumber: '',
+      storeNumber: '', marketNumber: '', userName: '', emailRecipient: '',
     });
   },
   saveSettings(s) {
