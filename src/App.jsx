@@ -71,7 +71,11 @@ function AppInner() {
         {view !== 'weekend' && session && view === 'report' && <ReportView />}
       </main>
 
-      <BottomTabs view={view} onChange={setView} disabled={session ? [] : ['home', 'checklist', 'associates', 'report']} />
+      <BottomTabs
+        view={view}
+        onChange={setView}
+        disabled={session ? [] : ['checklist', 'associates', 'report']}
+      />
     </div>
   );
 }

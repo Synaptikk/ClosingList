@@ -396,8 +396,11 @@ function cryptoId() {
   return Array.from(a, b => b.toString(16).padStart(2, '0')).join('');
 }
 
+// Weekend photos are for accountability (proof of work), not archival photography.
+// A tiny thumbnail is enough to see "yes, wet wall was stocked" — keeps Firebase
+// Storage cost near zero. ~30–70 KB per photo at these settings.
 function compressImage(file) {
-  const MAX_DIM = 1200;
+  const MAX_DIM = 800;
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const img = new Image();
@@ -410,7 +413,7 @@ function compressImage(file) {
         c.width = width; c.height = height;
         c.getContext('2d').drawImage(img, 0, 0, width, height);
         URL.revokeObjectURL(url);
-        resolve(c.toDataURL('image/jpeg', 0.78));
+        resolve(c.toDataURL('image/jpeg', 0.65));
       } catch (e) { reject(e); }
     };
     img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Bad image')); };

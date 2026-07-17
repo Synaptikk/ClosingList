@@ -108,12 +108,26 @@ function StoreSetup({ onDone }) {
 function SessionPanel({ onChangeStore }) {
   const { createSession, joinSession } = useSession();
   const settings = storage.getSettings();
+
+  // Editable inputs so the user can update store/name/email inline every time.
+  const [storeNumber, setStoreNumber]       = useState(settings.storeNumber    || '');
+  const [userName, setUserName]             = useState(settings.userName       || '');
+  const [emailRecipient, setEmailRecipient] = useState(settings.emailRecipient || '');
   const [mode, setMode]         = useState('start');
   const [joinCode, setJoinCode] = useState('');
   const [error, setError]       = useState('');
 
   function onCreate() {
-    createSession({ storeNumber: settings.storeNumber });
+    if (!storeNumber.trim()) { setError('Enter your store number.'); return; }
+    if (!userName.trim())    { setError('Enter your name.'); return; }
+    // Persist whatever the user typed so future visits pre-fill.
+    storage.saveSettings({
+      storeNumber:    storeNumber.trim(),
+      userName:       userName.trim(),
+      emailRecipient: emailRecipient.trim(),
+      marketNumber:   '',
+    });
+    createSession({ storeNumber: storeNumber.trim() });
   }
 
   function onJoin() {
@@ -125,22 +139,6 @@ function SessionPanel({ onChangeStore }) {
 
   return (
     <>
-      {/* Store identity banner */}
-      <div className="flex items-center justify-between mb-3 px-1">
-        <div className="text-sm font-semibold text-slate-800">
-          Store {settings.storeNumber}
-          {settings.userName
-            ? <span className="text-slate-500 font-normal"> · {settings.userName}</span>
-            : null}
-        </div>
-        <button
-          onClick={onChangeStore}
-          className="text-xs text-[#0071dc] font-medium underline-offset-2 hover:underline"
-        >
-          Change store
-        </button>
-      </div>
-
       <div className="bg-white rounded-2xl shadow-sm ring-1 ring-slate-200 overflow-hidden">
         <div className="grid grid-cols-2 text-sm font-semibold">
           <button
@@ -159,12 +157,40 @@ function SessionPanel({ onChangeStore }) {
 
         {mode === 'start' ? (
           <div className="p-4 space-y-4">
-            <div className="bg-slate-50 rounded-lg p-3 text-sm">
-              <div className="text-slate-500 text-[11px] uppercase tracking-wide font-semibold mb-1">Store</div>
-              <div className="font-bold text-slate-900 text-base">Store {settings.storeNumber}</div>
-              <div className="text-slate-500 text-[11px] uppercase tracking-wide font-semibold mt-2 mb-1">Your name</div>
-              <div className="font-bold text-slate-900 text-base">{settings.userName || '—'}</div>
-            </div>
+            <Field label="Store #">
+              <input
+                inputMode="numeric"
+                value={storeNumber}
+                onChange={e => { setStoreNumber(e.target.value); setError(''); }}
+                placeholder="e.g. 1458"
+                className="w-full rounded-lg ring-1 ring-slate-200 px-3 py-2.5 text-base focus:outline-none focus:ring-[#0071dc]"
+              />
+            </Field>
+
+            <Field label="Your name">
+              <input
+                value={userName}
+                onChange={e => { setUserName(e.target.value); setError(''); }}
+                placeholder="e.g. Sarah"
+                className="w-full rounded-lg ring-1 ring-slate-200 px-3 py-2.5 text-base focus:outline-none focus:ring-[#0071dc]"
+              />
+            </Field>
+
+            <Field label="Send reports to (optional)">
+              <input
+                type="email"
+                inputMode="email"
+                value={emailRecipient}
+                onChange={e => setEmailRecipient(e.target.value)}
+                placeholder="dm@example.com"
+                className="w-full rounded-lg ring-1 ring-slate-200 px-3 py-2.5 text-base focus:outline-none focus:ring-[#0071dc]"
+              />
+            </Field>
+
+            {error && (
+              <div className="text-sm text-rose-700 bg-rose-50 ring-1 ring-rose-200 rounded-lg p-2">{error}</div>
+            )}
+
             <button
               onClick={onCreate}
               className="w-full bg-[#0071dc] hover:bg-[#005bb5] active:bg-[#004a96] text-white font-semibold py-3.5 rounded-xl shadow-sm"
