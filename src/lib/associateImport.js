@@ -119,6 +119,100 @@ export function blankAssociate() {
   return { id: cryptoRandomId(), name: '', shift: '', area: '', accomplishment: '', notes: '', manager: '' };
 }
 
+// ---- Dedup / merge helpers -------------------------------------------------
+// Normalized name key for duplicate detection. Case-insensitive, trims
+// surrounding whitespace, and collapses internal runs of whitespace so
+// "Maria  G." and "maria g." match.
+export function nameKey(a) {
+  return (a?.name || '').toLowerCase().trim().replace(/\s+/g, ' ');
+}
+
+// Given a list of existing associates and a list of incoming ones, tag each
+// incoming record with `_dupe: true` when its normalized name already exists
+// in `existing`. Non-mutating — returns new objects.
+export function tagDuplicates(existing, incoming) {
+  const have = new Set((existing || []).map(nameKey).filter(Boolean));
+  return (incoming || []).map(a => ({ ...a, _dupe: have.has(nameKey(a)) }));
+}
+
+// Merge incoming rows onto existing according to `strategy`:
+//   'replace'      → drop existing, keep only incoming
+//   'append'       → keep everything (may create duplicates)
+//   'append-skip'  → keep existing, add only incoming whose name isn't already there
+//   'append-merge' → for duplicates, patch existing with any non-empty incoming fields
+export function mergeAssociates(existing, incoming, strategy = 'append-skip') {
+  const cleanIncoming = (incoming || []).map(({ _dupe, ...rest }) => rest);
+  const cleanExisting = existing || [];
+
+  if (strategy === 'replace') return cleanIncoming;
+  if (strategy === 'append') return [...cleanExisting, ...cleanIncoming];
+
+  const byKey = new Map();
+  cleanExisting.forEach(a => byKey.set(nameKey(a), a));
+
+  if (strategy === 'append-merge') {
+    for (const inc of cleanIncoming) {
+      const k = nameKey(inc);
+      const prev = byKey.get(k);
+      if (!prev) { byKey.set(k, inc); continue; }
+      byKey.set(k, {
+        ...prev,
+        shift: inc.shift || prev.shift,
+        area: inc.area || prev.area,
+        notes: inc.notes || prev.notes,
+        manager: inc.manager || prev.manager,
+      });
+    }
+    return [...byKey.values()];
+  }
+
+  // Default: append-skip
+  const out = [...cleanExisting];
+  for (const inc of cleanIncoming) {
+    if (!byKey.has(nameKey(inc))) out.push(inc);
+  }
+  return out;
+}
+
+// Strip session-specific fields for use as a reusable per-store roster.
+// Keeps identity + role info; drops nightly state.
+export function toRosterEntry(a) {
+  return {
+    id: cryptoRandomId(),
+    name: (a?.name || '').trim(),
+    shift: (a?.shift || '').trim(),
+    area: (a?.area || '').trim(),
+    manager: (a?.manager || '').trim(),
+    accomplishment: '',
+    notes: '',
+  };
+}
+
+// Render an array of associates back to CSV text (for template download /
+// clipboard round-trip).
+export function toCsv(associates, { includeHeader = true } = {}) {
+  const cols = ['name', 'shift', 'area', 'accomplishment', 'notes', 'manager'];
+  const esc = (s) => {
+    const v = (s ?? '').toString();
+    return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+  };
+  const lines = [];
+  if (includeHeader) lines.push(cols.join(','));
+  for (const a of associates || []) lines.push(cols.map(c => esc(a?.[c])).join(','));
+  return lines.join('\n');
+}
+
+// Read a File (from <input type=file> / drop event) as text. Returns a promise.
+export function readFileAsText(file) {
+  return new Promise((resolve, reject) => {
+    if (!file) return reject(new Error('No file'));
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error || new Error('Read failed'));
+    reader.readAsText(file);
+  });
+}
+
 // ---- APAISuite ClosingList email format -----------------------------------
 // First line: "Closing List — Store {n} — {date}"
 // Blank line

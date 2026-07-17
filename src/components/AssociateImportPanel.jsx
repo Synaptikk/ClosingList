@@ -1,40 +1,145 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSession } from '../store/sessionStore';
-import { parseAssociates, blankAssociate } from '../lib/associateImport';
+import { storage } from '../lib/storage';
+import {
+  parseAssociates,
+  blankAssociate,
+  tagDuplicates,
+  mergeAssociates,
+  toRosterEntry,
+  toCsv,
+  readFileAsText,
+} from '../lib/associateImport';
 
-const SAMPLE = `Paste ClosingList email output here:
+const SAMPLE = `Paste ClosingList email output, CSV / TSV, JSON, or one name per line.
 
 Closing List — Store 1458 — 2026-06-10
 
 Cashier
   Maria G.: 1:30-10:30pm:
-  Devon P.: 2-11pm: CALLED OFF (Sick)
+  Devon P.: 2-11pm: CALLED OFF (Sick)`;
 
-— or paste CSV / JSON / one name per line —`;
+const TEMPLATE_CSV = `name,shift,area,accomplishment,notes,manager
+Maria G.,1:30-10:30pm,Cashier,,,
+Devon P.,2-11pm,Cashier,,CALLED OFF (Sick),
+Sam W.,3-11pm,Grocery,,,`;
 
 export default function AssociateImportPanel() {
   const { session, setAssociates, addAssociate, updateAssociate, removeAssociate } = useSession();
   const [text, setText] = useState('');
   const [showImport, setShowImport] = useState(session.associates.length === 0);
   const [error, setError] = useState('');
+  const [info, setInfo] = useState('');
+  const [preview, setPreview] = useState(null); // { rows: [{...associate, _dupe}], source: 'paste'|'file'|'roster' }
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef(null);
   const submitted = session.status === 'submitted';
 
-  function doImport(mode) {
+  const storeNumber = useMemo(() => storage.getSettings()?.storeNumber || '', []);
+  const [savedRoster, setSavedRoster] = useState(() => storage.getStoreRoster(storeNumber));
+
+  // Refresh roster snapshot when the panel is opened (in case another tab wrote it).
+  useEffect(() => {
+    if (showImport) setSavedRoster(storage.getStoreRoster(storeNumber));
+  }, [showImport, storeNumber]);
+
+  function flash(msg) {
+    setInfo(msg);
+    setTimeout(() => setInfo(''), 2500);
+  }
+
+  function buildPreview(rowsRaw, source) {
+    if (!rowsRaw || !rowsRaw.length) {
+      setError('Could not find any associates in that input.');
+      setPreview(null);
+      return;
+    }
     setError('');
-    const parsed = parseAssociates(text);
-    if (!parsed.length) { setError('Could not find any associates in that text.'); return; }
-    if (mode === 'replace') setAssociates(parsed);
-    else setAssociates([...session.associates, ...parsed]);
+    const tagged = tagDuplicates(session.associates, rowsRaw);
+    setPreview({ rows: tagged, source });
+  }
+
+  function doParseText() {
+    buildPreview(parseAssociates(text), 'paste');
+  }
+
+  async function doPickFile(file) {
+    setError('');
+    if (!file) return;
+    try {
+      const raw = await readFileAsText(file);
+      const parsed = parseAssociates(raw);
+      buildPreview(parsed, 'file');
+      if (parsed.length) setText(raw); // let the user tweak text if they want
+    } catch (e) {
+      setError(`Could not read file: ${e?.message || e}`);
+    }
+  }
+
+  function onDrop(e) {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer?.files?.[0];
+    if (file) doPickFile(file);
+  }
+
+  function doLoadRoster() {
+    const roster = storage.getStoreRoster(storeNumber);
+    setSavedRoster(roster);
+    if (!roster || !roster.associates?.length) {
+      setError('No saved roster for this store yet. Import a list first, then click "Save as store roster".');
+      return;
+    }
+    buildPreview(roster.associates.map(a => ({ ...a })), 'roster');
+  }
+
+  function doCommit(strategy) {
+    if (!preview) return;
+    const merged = mergeAssociates(session.associates, preview.rows, strategy);
+    setAssociates(merged);
+    setPreview(null);
     setText('');
     setShowImport(false);
+    flash(`Imported ${preview.rows.length} row(s) (${strategy}).`);
   }
+
+  function doSaveRoster() {
+    const roster = (session.associates || []).map(toRosterEntry).filter(a => a.name);
+    if (!roster.length) {
+      setError('Nothing to save — the associate list is empty.');
+      return;
+    }
+    const res = storage.saveStoreRoster(storeNumber, roster);
+    if (!res.ok) { setError(`Could not save roster: ${res.error}`); return; }
+    setSavedRoster(storage.getStoreRoster(storeNumber));
+    flash(`Saved ${roster.length} associate(s) as roster for store ${storeNumber || '(default)'}.`);
+  }
+
+  function doClearRoster() {
+    if (!confirm('Delete the saved roster for this store?')) return;
+    storage.clearStoreRoster(storeNumber);
+    setSavedRoster(null);
+    flash('Saved roster cleared.');
+  }
+
+  function doDownloadTemplate() {
+    downloadCsv('associates-template.csv', TEMPLATE_CSV);
+  }
+
+  function doExportCurrent() {
+    if (!session.associates.length) { setError('No associates to export.'); return; }
+    downloadCsv(`associates-${session.date?.slice(0,10) || 'export'}.csv`, toCsv(session.associates));
+  }
+
+  const dupeCount = preview ? preview.rows.filter(r => r._dupe).length : 0;
+  const newCount = preview ? preview.rows.length - dupeCount : 0;
 
   return (
     <div className="space-y-4">
       <section className="bg-white rounded-2xl ring-1 ring-slate-200 shadow-sm p-4">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between flex-wrap gap-2">
           <h3 className="text-sm font-semibold text-slate-800">Associates ({session.associates.length})</h3>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             <button
               onClick={() => addAssociate(blankAssociate())}
               disabled={submitted}
@@ -48,8 +153,65 @@ export default function AssociateImportPanel() {
           </div>
         </div>
 
-        {showImport && (
-          <div className="mt-3 space-y-2">
+        {showImport && !preview && (
+          <div className="mt-3 space-y-3">
+            {/* Quick-action row — the automation win: one-click load from saved store roster. */}
+            <div className="flex flex-wrap gap-2 items-center">
+              <button
+                onClick={doLoadRoster}
+                disabled={!savedRoster}
+                className="text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-700 px-3 py-1.5 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed"
+                title={savedRoster ? `Load ${savedRoster.associates.length} associate(s) saved for store ${storeNumber || '(default)'}` : 'No saved roster yet'}
+              >Load saved roster{savedRoster ? ` (${savedRoster.associates.length})` : ''}</button>
+              <button
+                onClick={doSaveRoster}
+                disabled={!session.associates.length}
+                className="text-xs font-semibold bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg disabled:opacity-50"
+                title="Save the current list as the reusable roster for this store"
+              >Save current as store roster</button>
+              {savedRoster && (
+                <button
+                  onClick={doClearRoster}
+                  className="text-xs font-semibold text-rose-600 hover:text-rose-800 px-2 py-1.5"
+                >Clear roster</button>
+              )}
+              <span className="text-[11px] text-slate-500 ml-auto">
+                Store {storeNumber || '(not set)'}{savedRoster ? ` • roster saved ${formatWhen(savedRoster.savedAt)}` : ''}
+              </span>
+            </div>
+
+            {/* File upload + drop zone */}
+            <div
+              onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={onDrop}
+              className={`rounded-lg border-2 border-dashed p-4 text-center text-xs transition-colors ${
+                dragOver ? 'border-[#0071dc] bg-blue-50' : 'border-slate-300 bg-slate-50'
+              }`}
+            >
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".csv,.tsv,.txt,.json"
+                className="hidden"
+                onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) doPickFile(f); }}
+              />
+              <div className="text-slate-600">
+                <strong>Drop a file</strong> here (.csv, .tsv, .txt, .json) or
+                {' '}<button onClick={() => fileInputRef.current?.click()} className="text-[#0071dc] underline font-semibold">choose a file</button>
+              </div>
+              <div className="mt-1 text-slate-500">
+                <button onClick={doDownloadTemplate} className="underline hover:text-slate-700">Download CSV template</button>
+                {session.associates.length > 0 && (
+                  <>
+                    {' '}·{' '}
+                    <button onClick={doExportCurrent} className="underline hover:text-slate-700">Export current list</button>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Manual paste */}
             <textarea
               value={text}
               onChange={e => setText(e.target.value)}
@@ -60,21 +222,72 @@ export default function AssociateImportPanel() {
             {error && <div className="text-xs text-rose-700 bg-rose-50 ring-1 ring-rose-200 rounded p-2">{error}</div>}
             <div className="flex gap-2 justify-end">
               <button
-                onClick={() => doImport('append')}
-                className="text-xs font-semibold bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg"
-              >Append</button>
-              <button
-                onClick={() => doImport('replace')}
-                className="text-xs font-semibold bg-[#0071dc] text-white hover:bg-[#005bb5] px-3 py-1.5 rounded-lg"
-              >Replace list</button>
+                onClick={doParseText}
+                disabled={!text.trim()}
+                className="text-xs font-semibold bg-[#0071dc] text-white hover:bg-[#005bb5] px-3 py-1.5 rounded-lg disabled:opacity-50"
+              >Preview import</button>
             </div>
             <p className="text-[11px] text-slate-500">
               Accepts the APAISuite <strong>ClosingList</strong> email output (paste straight from the extension),
-              CSV (with or without header), JSON, or one name per line. The extension's job groups become each
-              row's <em>Area</em>; <code>CALLED OFF</code> lands in <em>Notes</em>.
+              CSV / TSV (with or without header — columns auto-detected), JSON, or one name per line.
+              Duplicates against the current list are flagged in the preview.
             </p>
           </div>
         )}
+
+        {/* Preview / confirm stage */}
+        {showImport && preview && (
+          <div className="mt-3 space-y-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="text-xs font-semibold text-slate-800">
+                Preview ({preview.rows.length} row{preview.rows.length === 1 ? '' : 's'} from {sourceLabel(preview.source)})
+              </div>
+              <div className="text-[11px] text-slate-500">
+                <span className="inline-block px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 mr-1">{newCount} new</span>
+                <span className="inline-block px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">{dupeCount} duplicate</span>
+              </div>
+            </div>
+
+            <div className="max-h-64 overflow-y-auto rounded-lg ring-1 ring-slate-200 divide-y divide-slate-100">
+              {preview.rows.map((r, i) => (
+                <div key={i} className="flex items-center gap-2 px-3 py-1.5 text-xs">
+                  <span className={`inline-block w-14 text-[10px] font-bold uppercase tracking-wide ${
+                    r._dupe ? 'text-amber-700' : 'text-emerald-700'
+                  }`}>{r._dupe ? 'DUPE' : 'NEW'}</span>
+                  <span className="flex-1 truncate font-medium text-slate-900">{r.name || '(unnamed)'}</span>
+                  <span className="text-slate-500 truncate">{r.area}</span>
+                  <span className="text-slate-500 truncate">{r.shift}</span>
+                </div>
+              ))}
+            </div>
+
+            {error && <div className="text-xs text-rose-700 bg-rose-50 ring-1 ring-rose-200 rounded p-2">{error}</div>}
+
+            <div className="flex flex-wrap gap-2 justify-end">
+              <button
+                onClick={() => setPreview(null)}
+                className="text-xs font-semibold bg-white ring-1 ring-slate-200 hover:bg-slate-50 px-3 py-1.5 rounded-lg"
+              >Back</button>
+              <button
+                onClick={() => doCommit('append-skip')}
+                className="text-xs font-semibold bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg"
+                title="Add only non-duplicate rows"
+              >Append (skip {dupeCount || 'no'} dupes)</button>
+              <button
+                onClick={() => doCommit('append-merge')}
+                disabled={dupeCount === 0}
+                className="text-xs font-semibold bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg disabled:opacity-50"
+                title="Update matching associates with new shift/area/notes"
+              >Merge into duplicates</button>
+              <button
+                onClick={() => doCommit('replace')}
+                className="text-xs font-semibold bg-[#0071dc] text-white hover:bg-[#005bb5] px-3 py-1.5 rounded-lg"
+              >Replace list</button>
+            </div>
+          </div>
+        )}
+
+        {info && <div className="mt-3 text-xs text-emerald-700 bg-emerald-50 ring-1 ring-emerald-200 rounded p-2">{info}</div>}
       </section>
 
       {session.associates.length === 0 && !showImport && (
@@ -92,6 +305,37 @@ export default function AssociateImportPanel() {
       />
     </div>
   );
+}
+
+function sourceLabel(source) {
+  if (source === 'file') return 'file';
+  if (source === 'roster') return 'saved roster';
+  return 'paste';
+}
+
+function formatWhen(iso) {
+  if (!iso) return '';
+  try {
+    const d = new Date(iso);
+    const now = new Date();
+    const diffDays = Math.floor((now - d) / 86400000);
+    if (diffDays <= 0) return 'today';
+    if (diffDays === 1) return 'yesterday';
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return d.toLocaleDateString();
+  } catch { return ''; }
+}
+
+function downloadCsv(filename, csv) {
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 // Group associates by their `area` field, alphabetical, "Unassigned" last.

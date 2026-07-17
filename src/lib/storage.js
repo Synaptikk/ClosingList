@@ -9,6 +9,7 @@ const SESSIONS_INDEX = `${KEY_PREFIX}sessions`;
 const ACTIVE_SESSION = `${KEY_PREFIX}activeSession`;
 const ACTIVE_MANAGER = `${KEY_PREFIX}activeManager`;
 const SETTINGS_KEY = `${KEY_PREFIX}settings`;
+const ROSTER_KEY = (storeNumber) => `${KEY_PREFIX}roster:${storeNumber || 'default'}`;
 
 function safeParse(json, fallback) {
   if (!json) return fallback;
@@ -71,6 +72,29 @@ export const storage = {
   saveSettings(s) {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
   },
+  // ---- per-store roster (reusable associate list, keyed by storeNumber) ----
+  // Rosters strip session-specific fields (accomplishment, notes) so they can
+  // be reloaded night after night without carrying stale call-off reasons.
+  getStoreRoster(storeNumber) {
+    return safeParse(localStorage.getItem(ROSTER_KEY(storeNumber)), null);
+  },
+  saveStoreRoster(storeNumber, associates) {
+    try {
+      const payload = {
+        storeNumber: storeNumber || '',
+        savedAt: new Date().toISOString(),
+        associates: Array.isArray(associates) ? associates : [],
+      };
+      localStorage.setItem(ROSTER_KEY(storeNumber), JSON.stringify(payload));
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: e?.message || 'storage full' };
+    }
+  },
+  clearStoreRoster(storeNumber) {
+    localStorage.removeItem(ROSTER_KEY(storeNumber));
+  },
+
   // ---- find by join code ----
   findSessionByJoinCode(code) {
     if (!code) return null;
