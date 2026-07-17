@@ -274,13 +274,11 @@ function SlotCell({ day, slotId, itemId, sectionId }) {
 // ── Inputs ─────────────────────────────────────────────────────────────────
 
 function AssigneeInput({ day, slotId, sectionId }) {
-  const { slotData, setAssignee, userName } = useWeekend();
-  const stored = slotData(day, slotId).assignees[sectionId] ?? undefined;
-  // First-run default: show logged-in user's name in slot_a only if never set yet.
-  const displayValue = stored !== undefined ? stored : (slotId === 'slot_a' ? (userName || '') : '');
+  const { slotData, setAssignee } = useWeekend();
+  const value = slotData(day, slotId).assignees[sectionId] || '';
   return (
     <input
-      value={displayValue}
+      value={value}
       onChange={e => setAssignee(day, slotId, sectionId, e.target.value)}
       placeholder="Assign associate…"
       className="mt-1 block w-full text-sm border border-slate-200 rounded px-2 py-1.5 bg-white focus:outline-none focus:border-[#0071CE]"
