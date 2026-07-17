@@ -60,7 +60,7 @@ export const WEEKEND_SECTIONS = [
     title: 'Paper Goods',
     color: '#b45309',
     items: [
-      { id: 'j1',            label: 'J1' },
+      { id: 'j1',            label: 'Paper Plates' },
       { id: 'toilet_paper',  label: 'Toilet Paper' },
       { id: 'paper_towels',  label: 'Paper Towels' },
     ],
